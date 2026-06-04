@@ -1,0 +1,8 @@
+{
+  "name": "Planday Bulk Leave Requests",
+  "description": "Upload leave requests in bulk for Planday.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

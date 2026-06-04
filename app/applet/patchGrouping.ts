@@ -1,0 +1,122 @@
+import fs from 'fs';
+let content = fs.readFileSync('App.tsx', 'utf-8');
+
+const targetStr = `            groupings.forEach((rows, key) => {
+                rows.sort((a,b) => (a.start || "").localeCompare(b.start || ""));
+                
+                if (rows.length === 0) return;
+                const minStart = rows[0].start;
+                const maxEnd = rows[rows.length - 1].end || rows[rows.length - 1].start;
+                const comment = rows[0].comment;
+                const absenceType = rows[0].absenceType;
+                
+                const registrations = rows.map(r => {
+                    const unitStr = accountTypes.find(t => t.id === r.accountId)?.unit || 'Hours';
+                    return {
+                        date: r.start,
+                        account: {
+                            id: r.accountId,
+                            costs: [
+                                {
+                                    value: r.cost,
+                                    unit: { type: unitStr }
+                                }
+                            ]
+                        }
+                    };
+                });
+                
+                finalRequests.push({
+                    originalRows: rows,
+                    payload: {
+                        note: comment || "Bulk Request",
+                        absenceType: absenceType,
+                        absencePeriod: {
+                            start: minStart,
+                            end: maxEnd
+                        },
+                        registrations: registrations
+                    }
+                });
+            });`;
+
+// We need to implement proper sequential bundling logic
+const repStr = `            groupings.forEach((rows, key) => {
+                const parseDate = (dstr: string) => {
+                    const [y, m, d] = dstr.split('-').map(Number);
+                    return new Date(y, m - 1, d);
+                };
+
+                rows.sort((a,b) => (a.start || "").localeCompare(b.start || ""));
+                
+                if (rows.length === 0) return;
+
+                // Group into sequential chunks
+                let currentChunk = [rows[0]];
+                let chunks = [currentChunk];
+
+                for (let i = 1; i < rows.length; i++) {
+                    const curr = rows[i];
+                    const prev = currentChunk[currentChunk.length - 1];
+                    const currDate = parseDate(curr.start);
+                    const prevDate = parseDate(prev.start);
+                    
+                    const diffTime = Math.abs(currDate.getTime() - prevDate.getTime());
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                    // If max 3 days apart (e.g. Friday to Monday), group them in the same request?
+                    // Actually, let's keep it strictly sequential (1 day apart). Or 3 days to cover weekends.
+                    // The safest is if diffDays <= 3, assume it's part of the same block. Wait, maybe just strictly 1 day or max 3? Let's use 3.
+                    if (diffDays <= 3) {
+                        currentChunk.push(curr);
+                    } else {
+                        currentChunk = [curr];
+                        chunks.push(currentChunk);
+                    }
+                }
+
+                chunks.forEach(chunk => {
+                    const minStart = chunk[0].start;
+                    const maxEnd = chunk[chunk.length - 1].end || chunk[chunk.length - 1].start;
+                    const comment = chunk[0].comment;
+                    const absenceType = chunk[0].absenceType;
+
+                    const registrations = chunk.map(r => {
+                        let unitStr = 'Hours';
+                        if (r.billingMode && r.billingMode.toLowerCase() === 'days') unitStr = 'Days';
+                        return {
+                            date: r.start,
+                            account: {
+                                id: r.accountId,
+                                costs: [
+                                    {
+                                        value: r.cost,
+                                        unit: { type: unitStr }
+                                    }
+                                ]
+                            }
+                        };
+                    });
+                    
+                    finalRequests.push({
+                        originalRows: chunk,
+                        payload: {
+                            note: comment || "Bulk Request",
+                            absenceType: absenceType,
+                            absencePeriod: {
+                                start: minStart,
+                                end: maxEnd
+                            },
+                            registrations: registrations
+                        }
+                    });
+                });
+            });`;
+
+if (content.indexOf(targetStr) !== -1) {
+    content = content.replace(targetStr, repStr);
+    fs.writeFileSync('App.tsx', content);
+    console.log("Patched sequential bundling");
+} else {
+    console.log("Could not find grouping string");
+}
