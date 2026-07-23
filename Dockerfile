@@ -1,7 +1,8 @@
 # ==========================================
 # Stage 1: Build the React/Vite application
 # ==========================================
-FROM node:18-alpine as build
+# CHANGED: Upgraded to Node 22 to support your newer Vite/Tailwind dependencies
+FROM node:22-alpine as build
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -28,7 +29,6 @@ FROM nginx:alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy the built assets from Stage 1 into Nginx's web directory.
-# Note: If you are using Create React App instead of Vite, change 'dist' to 'build'
 COPY --from=build /app/dist /usr/share/nginx/html
 
 # Expose port 8080 for Cloud Run
