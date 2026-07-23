@@ -39,7 +39,12 @@ export interface LeaveAccount {
   id: number;
   name: string;
   typeId: number;
+  status?: string;
   validityPeriod: {
+    start: string | null;
+    end: string | null;
+  };
+  spendingPeriod?: {
     start: string | null;
     end: string | null;
   };
@@ -51,6 +56,7 @@ export interface LeaveAccountBalance {
 }
 
 export interface AbsenceRequestPayload {
+    employeeId: number;
     note: string;
     absenceType: string;
     status?: string;
@@ -75,7 +81,9 @@ export interface AbsenceRequestPayload {
 export interface AccountType {
     id: number;
     name: string;
-    unit: string;
+    unit?: string | { type: string };
+    type?: string;
+    isDeleted?: boolean;
     absenceType?: string;
     accruingRate?: {
         value: number;
@@ -83,6 +91,7 @@ export interface AccountType {
             type: string;
         };
     };
+    [key: string]: any;
 }
 
 export interface TemplateDataRow {
@@ -90,6 +99,7 @@ export interface TemplateDataRow {
     salaryIdentifier: string | null;
     employeeName: string;
     accountId: number;
+    accountTypeId?: number;
     accountName: string;
     accountTypeCategory: 'FLEX/TOIL' | 'Fixed' | 'Accrued' | 'Unknown';
     date?: string; // used for single date method
@@ -102,13 +112,20 @@ export interface TemplateDataRow {
 }
 
 export interface AdjustmentReview {
+    validityPeriod?: { start: string, end: string };
+    spendingPeriod?: { start: string, end: string };
     id: string;
     employeeId?: number;
     employeeName: string;
+    portalEmployeeName?: string;
+    employeeMatchType?: 'exact' | 'salary' | 'name' | 'none';
     salaryIdentifier?: string | null;
+    portalSalaryIdentifier?: string | null;
     accountId: number;
+    accountTypeId?: number;
     accountName: string;
     accountTypeCategory?: 'FLEX/TOIL' | 'Fixed' | 'Accrued' | 'Unknown';
+    accountStatus?: string;
     date?: string; // Single date format
     start?: string; // Range format
     end?: string; // Range format
@@ -121,4 +138,11 @@ export interface AdjustmentReview {
     error?: string;
     billingModeError?: string;
     isValidationError?: boolean;
+    timestamp?: string;
+    requestStatus?: string;
+    isFirstInBundle?: boolean;
+    isSubsequentInBundle?: boolean;
+    isRequestStart?: boolean;
+    requestStartDate?: string;
+    requestEndDate?: string;
 }

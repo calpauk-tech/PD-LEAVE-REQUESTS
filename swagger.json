@@ -1,0 +1,4166 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "Planday.OpenApi.Absence.Api",
+    "description": "Planday OpenApi - Absence",
+    "version": "1.0"
+  },
+  "paths": {
+    "/absence/v1.0/absencerecords": {
+      "get": {
+        "tags": [
+          "AbsenceRecords"
+        ],
+        "summary": "GET Absence records",
+        "description": "Returns absence records matching given criteria including: time period, employee identifier and statuses.\n<br/>**Authroization policy**: absence read.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "startDate",
+            "in": "query",
+            "description": "Start date",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "description": "End date",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "employeeId",
+            "in": "query",
+            "description": "Employee id",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "statuses",
+            "in": "query",
+            "description": "Statuses",
+            "schema": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "Declined",
+                  "Approved"
+                ],
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordResult]]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordResult]]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordResult]]"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/absencerecords/{id}/decline": {
+      "put": {
+        "tags": [
+          "AbsenceRecords"
+        ],
+        "summary": "PUT Decline the absence record",
+        "description": "Decline a specific absence record\n<br/>**Authroization policy**: absence update.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Absence record id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Decline absence record input",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.DeclineAbsenceRecordInput"
+                  }
+                ]
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.DeclineAbsenceRecordInput"
+                  }
+                ]
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.DeclineAbsenceRecordInput"
+                  }
+                ]
+              }
+            },
+            "application/json-patch+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.DeclineAbsenceRecordInput"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "404": {
+            "description": "Absence record with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/absencerequests/draft": {
+      "get": {
+        "tags": [
+          "AbsenceRequests"
+        ],
+        "summary": "GET Absence request draft",
+        "description": "Get an absence request draft that can be sent later to submit an absence request.\n<br/>**Authroization policy**: absence create.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "startDate",
+            "in": "query",
+            "description": "Start date of the requesting absence (inclusive)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "description": "End date of the requesting absence (inclusive)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "accountId",
+            "in": "query",
+            "description": "Absence account that should be used",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "absenceType",
+            "in": "query",
+            "description": "Which absence type should be taken into account. If not specified then accountId is used",
+            "schema": {
+              "enum": [
+                "Vacation",
+                "Absence",
+                "Flextime",
+                "Accrued"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "employeeId",
+            "in": "query",
+            "description": "From which employee to generate the draft",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestDraftResult]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestDraftResult]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestDraftResult]"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Input parameters are invalid"
+          },
+          "404": {
+            "description": "Account with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/absencerequests": {
+      "post": {
+        "tags": [
+          "AbsenceRequests"
+        ],
+        "summary": "POST Submit the absence request",
+        "description": "Submit an absence request on behalf of an employee. Before submitting the request, use the Get Draft endpoint to obtain a request body to use with this endpoint.\n<br/>**Authroization policy**: absence create.\n<br/>Requires authorization.",
+        "requestBody": {
+          "description": "Absence request input data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AbsenceRequestInputModel"
+                  }
+                ]
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AbsenceRequestInputModel"
+                  }
+                ]
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AbsenceRequestInputModel"
+                  }
+                ]
+              }
+            },
+            "application/json-patch+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AbsenceRequestInputModel"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.SubmitAbsenceRequestResult"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.SubmitAbsenceRequestResult"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.SubmitAbsenceRequestResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Input parameters are invalid"
+          },
+          "404": {
+            "description": "Account with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "AbsenceRequests"
+        ],
+        "summary": "GET Absence requests",
+        "description": "Get all absence requests, filter it by employee and/or absence request status\n<br/>**Authroization policy**: absence read.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "Limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 40
+            }
+          },
+          {
+            "name": "Offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "employeeId",
+            "in": "query",
+            "description": "Employee id",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Absence request status",
+            "schema": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "Submitted",
+                  "Declined",
+                  "Approved",
+                  "Cancelled"
+                ],
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "description": "Fetch requests for time off ending on this date or later.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "description": "Fetch requests for time off starting on this date or earlier.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AbsenceRequestResult]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AbsenceRequestResult]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AbsenceRequestResult]"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/absencerequests/{id}/cancel": {
+      "put": {
+        "tags": [
+          "AbsenceRequests"
+        ],
+        "summary": "PUT Cancel the absence request",
+        "description": "THIS ENDPOINT WILL BE DEPRECATED. Use the \"Deny absence request\" endpoint instead\n<br/>**Authroization policy**: absence create.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Absence request id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "404": {
+            "description": "Absence request with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        },
+        "deprecated": true
+      }
+    },
+    "/absence/v1.0/absencerequests/{id}/approve": {
+      "put": {
+        "tags": [
+          "AbsenceRequests"
+        ],
+        "summary": "PUT Approve the absence request",
+        "description": "Approve a specific absence request\n\n\n<strong>[ existingShifts ]</strong> if not provided, set to default\n\n<strong>[ coverShifts ]</strong> if not provided, set to default\n\n\n<br/>**Authroization policy**: absence create.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Absence request id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Absence request input data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.ApproveAbsenceRequestInputModel"
+                  }
+                ]
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.ApproveAbsenceRequestInputModel"
+                  }
+                ]
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.ApproveAbsenceRequestInputModel"
+                  }
+                ]
+              }
+            },
+            "application/json-patch+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.ApproveAbsenceRequestInputModel"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "404": {
+            "description": "Absence request with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/absencerequests/{id}/deny": {
+      "put": {
+        "tags": [
+          "AbsenceRequests"
+        ],
+        "summary": "PUT Deny the absence request",
+        "description": "Deny an absence request. Only absence requests that are Pending can be denied.\n<br/>**Authroization policy**: absence create.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Absence request id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "input params",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.DenyAbsenceRequestInput"
+                  }
+                ]
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.DenyAbsenceRequestInput"
+                  }
+                ]
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.DenyAbsenceRequestInput"
+                  }
+                ]
+              }
+            },
+            "application/json-patch+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.DenyAbsenceRequestInput"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "404": {
+            "description": "Absence request with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/absencetypes": {
+      "get": {
+        "tags": [
+          "AbsenceTypes"
+        ],
+        "summary": "GET Absence types",
+        "description": "Get available absence types\n<br/>**Authroization policy**: absence read.\n<br/>Requires authorization.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceTypeResult]]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceTypeResult]]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceTypeResult]]"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/accounts/{id}/balance": {
+      "get": {
+        "tags": [
+          "AccountBalances"
+        ],
+        "summary": "GET Balance for account",
+        "description": "Gets account balance for specific account\n<br/>**Authroization policy**: absence read.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Account id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "balanceDate",
+            "in": "query",
+            "description": "If no date is provided, all approved requests are taken into account. If you provide a specific date, balance is calculated based on approved requests up to that date (with the day included)",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceResult]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceResult]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceResult]"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Account id is invalid"
+          },
+          "404": {
+            "description": "Account with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/accounts/balance/employees": {
+      "post": {
+        "tags": [
+          "AccountBalances"
+        ],
+        "summary": "POST Gets absence account balances",
+        "description": "Gets all balances for specific employees on a certain date\n<br/>**Authroization policy**: absence read.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "absenceType",
+            "in": "query",
+            "description": "Absence Type",
+            "schema": {
+              "enum": [
+                "Vacation",
+                "Absence",
+                "Flextime",
+                "Accrued"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "onlyAccountsValidOnBalanceDate",
+            "in": "query",
+            "description": "Include accounts in the past",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Ids of the requested employees (no duplicates allowed)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.EmployeeBalanceDateInputModel"
+                }
+              }
+            },
+            "text/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.EmployeeBalanceDateInputModel"
+                }
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.EmployeeBalanceDateInputModel"
+                }
+              }
+            },
+            "application/json-patch+json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.EmployeeBalanceDateInputModel"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.EmployeeBalancedAccountsResult]]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.EmployeeBalancedAccountsResult]]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.EmployeeBalancedAccountsResult]]"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/accounts": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "GET Accounts",
+        "description": "Returns all accounts filtered by account id, employee id, account type   and status\n<br/>**Authroization policy**: absence read.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "Limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "Offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Account id",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "employeeId",
+            "in": "query",
+            "description": "Employee id",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "accountTypeId",
+            "in": "query",
+            "description": "Account type id",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Account status",
+            "schema": {
+              "enum": [
+                "Active",
+                "Inactive"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "description": "Fetch accounts valid on this date or later.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "description": "Fetch accounts valid on this date or earlier.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountResult]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountResult]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountResult]"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/accounts/primary": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "GET Primary account",
+        "description": "Returns one primary account filtered by account id, employee id, account type and status\n<br/>**Authroization policy**: absence read.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "employeeId",
+            "in": "query",
+            "description": "Employee id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "description": "Date (query parameter `date`).",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "accountTypeIds",
+            "in": "query",
+            "description": "Account type ids",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountResult]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountResult]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountResult]"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account was not found"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/accounttypes": {
+      "get": {
+        "tags": [
+          "AccountTypes"
+        ],
+        "summary": "GET Account types",
+        "description": "Get all available account types filtered by id, absence type and deleted state\n<br/>**Authroization policy**: absencesettings read.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Account type id",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "absenceType",
+            "in": "query",
+            "description": "Absence type",
+            "schema": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "Vacation",
+                  "Absence",
+                  "Flextime",
+                  "Accrued"
+                ],
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "isDeleted",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccountTypeResult]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccountTypeResult]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccountTypeResult]"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/accounttypes/accrued/{id}": {
+      "get": {
+        "tags": [
+          "AccountTypes"
+        ],
+        "summary": "GET Account type of absence type Accrued",
+        "description": "Get account types with absence type: Accrued\n<br/>**Authroization policy**: absencesettings read.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Account type id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruedAccountTypeResult]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruedAccountTypeResult]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruedAccountTypeResult]"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Account type id is invalid"
+          },
+          "404": {
+            "description": "Account type with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "AccountTypes"
+        ],
+        "summary": "PUT Update account type definition of absence type Accrued",
+        "description": "Update account type with absence type: Accrued\n<br/>**Authroization policy**: absencesettings update.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The ID of the account type definition (of type Accrued) that should be updated.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Update accrued account type input model",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.UpdateAccruedAccountTypeInput"
+                  }
+                ]
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.UpdateAccruedAccountTypeInput"
+                  }
+                ]
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.UpdateAccruedAccountTypeInput"
+                  }
+                ]
+              }
+            },
+            "application/json-patch+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.UpdateAccruedAccountTypeInput"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "If the account type was successfully updated"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/accounttypes/accrued": {
+      "post": {
+        "tags": [
+          "AccountTypes"
+        ],
+        "summary": "POST Create account type definition of absence type Accrued",
+        "description": "Create new account type with absence type: Accrued\n<br/>**Authroization policy**: absencesettings create.\n<br/>Requires authorization.",
+        "requestBody": {
+          "description": "Create accrued account type input model",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.CreateAccruedAccountTypeInput"
+                  }
+                ]
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.CreateAccruedAccountTypeInput"
+                  }
+                ]
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.CreateAccruedAccountTypeInput"
+                  }
+                ]
+              }
+            },
+            "application/json-patch+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.CreateAccruedAccountTypeInput"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Int64]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Int64]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Int64]"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/accounttypes/{id}": {
+      "delete": {
+        "tags": [
+          "AccountTypes"
+        ],
+        "summary": "DELETE Account type",
+        "description": "Remove account type\n<br/>**Authroization policy**: absencesettings delete.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Account type id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "If the account type was successfully deleted"
+          },
+          "400": {
+            "description": "Account type id is invalid"
+          },
+          "404": {
+            "description": "Account type with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/accounts/{accountId}/adjustments": {
+      "get": {
+        "tags": [
+          "Adjustments"
+        ],
+        "summary": "GET Adjustments",
+        "description": "Returns adjustments of a specific accrued absence account.\n<br/>**Authroization policy**: absence read.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Absence account ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "Limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 40
+            }
+          },
+          {
+            "name": "Offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "description": "Fetch adjustments effective on this date or later. Use yyyy-mm-dd format",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "description": "Fetch adjustments effective on this date or earlier. Use yyyy-mm-dd format",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult]"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Adjustments"
+        ],
+        "summary": "POST Adjustments",
+        "description": "Create an adjustment to change a balance of an accrued absence account.\n<br/>**Authroization policy**: absence create.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Absence account ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Input model",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.CreateAdjustmentInputModel"
+                  }
+                ]
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.CreateAdjustmentInputModel"
+                  }
+                ]
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.CreateAdjustmentInputModel"
+                  }
+                ]
+              }
+            },
+            "application/json-patch+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.CreateAdjustmentInputModel"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult]"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/absence/v1.0/accounts/{accountId}/transactions": {
+      "get": {
+        "tags": [
+          "ToilTransactions"
+        ],
+        "summary": "GET Account transactions",
+        "description": "Returns all transactions for a given account in a given date.\n<br/>**Authroization policy**: absence read.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "description": "Date (query parameter `date`).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "in": "query",
+            "description": "External id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Transactions.TransactionResult]"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Transactions.TransactionResult]"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Transactions.TransactionResult]"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Account id is invalid"
+          },
+          "404": {
+            "description": "Account with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ToilTransactions"
+        ],
+        "summary": "POST Create transaction",
+        "description": "Create a new transaction for a TOIL account to adjust its balance.\n<br/>**Authroization policy**: absence create.\n<br/>Requires authorization.",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "description": "Account id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Transaction model",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AbsenceTransactionInputModel"
+                  }
+                ]
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AbsenceTransactionInputModel"
+                  }
+                ]
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AbsenceTransactionInputModel"
+                  }
+                ]
+              }
+            },
+            "application/json-patch+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AbsenceTransactionInputModel"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "400": {
+            "description": "Input parameters are invalid"
+          },
+          "404": {
+            "description": "Account with given id doesn't exist"
+          },
+          "403": {
+            "description": "Unauthorized."
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Planday.OpenApi.Absence.Application.Models.Input.AbsenceRequestInputModel": {
+        "required": [
+          "absencePeriod"
+        ],
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "absenceType": {
+            "enum": [
+              "Vacation",
+              "Absence",
+              "Flextime",
+              "Accrued"
+            ],
+            "type": "string",
+            "nullable": true
+          },
+          "absencePeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Common.Models.Range`1[System.String]"
+              }
+            ]
+          },
+          "registrations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AbsenceRequestRegistrationInput"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AbsenceRequestRegistrationAccountInput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "costs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AmountResultInput"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AbsenceRequestRegistrationInput": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "account": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AbsenceRequestRegistrationAccountInput"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AbsenceTransactionInputModel": {
+        "required": [
+          "amounts"
+        ],
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "type": {
+            "enum": [
+              "Adjustment",
+              "Entry"
+            ],
+            "type": "string",
+            "nullable": true
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "amounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AmountInputModel"
+            }
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AccruingInput": {
+        "required": [
+          "unit"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AccruingUnitInput"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AccruingRateInput": {
+        "required": [
+          "unit"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AccruingRateUnitInput"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AccruingRateUnitInput": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "Percent",
+              "DaysPerMonth",
+              "DaysPerYear",
+              "HoursPerDay",
+              "HoursPerMonth",
+              "HoursPerYear"
+            ],
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AccruingUnitInput": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "DaysPerYear",
+              "DaysPerMonth",
+              "HoursPerDay",
+              "HoursPerMonth",
+              "HoursPerYear"
+            ],
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.CarryOverInOut]": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.CarryOverInOut]"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.NegativeBalanceInOut]": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.NegativeBalanceInOut]"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.StartBalanceInOut]": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.StartBalanceInOut]"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.VacationEarningsInOut]": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.VacationEarningsInOut]"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.VacationLengthInRowInOut]": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.VacationLengthInRowInOut]"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.WorkDayLengthInOut]": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.WorkDayLengthInOut]"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.CarryOverInOut]": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "Days",
+              "Hours"
+            ],
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.NegativeBalanceInOut]": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "Days",
+              "Hours"
+            ],
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.StartBalanceInOut]": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "Days",
+              "Hours"
+            ],
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.VacationEarningsInOut]": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "Money"
+            ],
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.VacationLengthInRowInOut]": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "Days",
+              "Hours"
+            ],
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountUnitInput`1[Planday.OpenApi.Absence.Application.Enums.WorkDayLengthInOut]": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "Hours"
+            ],
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.CarryOverInput": {
+        "required": [
+          "max",
+          "validTo"
+        ],
+        "type": "object",
+        "properties": {
+          "max": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.CarryOverInOut]"
+              }
+            ]
+          },
+          "validTo": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.DayOfYearInput"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.CreateAccruedAccountTypeInput": {
+        "required": [
+          "accruingPeriod",
+          "accruingRate",
+          "allowedNegativeBalance",
+          "allowedVacationLengthInRow",
+          "carryOver",
+          "description",
+          "firstMonthAccruingRate",
+          "maxAccruing",
+          "name",
+          "spendingPeriod",
+          "spendingUnit",
+          "startBalance",
+          "vacationEarnings",
+          "workDayLength"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "description": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "spendingUnit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.SpendingUnitInput"
+              }
+            ]
+          },
+          "startBalance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.StartBalanceInOut]"
+              }
+            ]
+          },
+          "accruingPeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.PeriodInput"
+              }
+            ]
+          },
+          "spendingPeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.PeriodInput"
+              }
+            ]
+          },
+          "accruingRate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AccruingRateInput"
+              }
+            ]
+          },
+          "firstMonthAccruingRate": {
+            "enum": [
+              "Fixed",
+              "Calculated"
+            ],
+            "type": "string"
+          },
+          "maxAccruing": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AccruingInput"
+              }
+            ]
+          },
+          "employeeTypes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "nullable": true
+          },
+          "workDayLength": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.WorkDayLengthInput"
+              }
+            ]
+          },
+          "vacationEarnings": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.VacationEarningsInput"
+              }
+            ]
+          },
+          "allowedVacationLengthInRow": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.VacationLengthInRowInOut]"
+              }
+            ]
+          },
+          "allowedNegativeBalance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.NegativeBalanceInOut]"
+              }
+            ]
+          },
+          "canEditDaysInRequest": {
+            "type": "boolean"
+          },
+          "carryOver": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.CarryOverInput"
+              }
+            ]
+          },
+          "accountPriority": {
+            "enum": [
+              "None",
+              "First",
+              "Last"
+            ],
+            "type": "string",
+            "nullable": true
+          },
+          "salaryCodeCompanyPaid": {
+            "type": "string",
+            "nullable": true
+          },
+          "salaryCodeCompanyPaid2": {
+            "type": "string",
+            "nullable": true
+          },
+          "renewAutomatically": {
+            "type": "boolean"
+          },
+          "createAutomatically": {
+            "type": "boolean"
+          },
+          "areShiftsRequiredForAccrual": {
+            "type": "boolean",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.DayOfYearInput": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "month": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.PeriodInput": {
+        "required": [
+          "start",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "start": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.DayOfYearInput"
+              }
+            ]
+          },
+          "value": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.SpendingUnitInput": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "Days",
+              "Hours"
+            ],
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.UpdateAccruedAccountTypeInput": {
+        "required": [
+          "accruingPeriod",
+          "accruingRate",
+          "allowedNegativeBalance",
+          "allowedVacationLengthInRow",
+          "carryOver",
+          "description",
+          "firstMonthAccruingRate",
+          "maxAccruing",
+          "name",
+          "spendingPeriod",
+          "spendingUnit",
+          "vacationEarnings",
+          "workDayLength"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "description": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "spendingUnit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.SpendingUnitInput"
+              }
+            ]
+          },
+          "accountPriority": {
+            "enum": [
+              "None",
+              "First",
+              "Last"
+            ],
+            "type": "string"
+          },
+          "employeeTypes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "nullable": true
+          },
+          "accruingPeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.PeriodInput"
+              }
+            ]
+          },
+          "spendingPeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.PeriodInput"
+              }
+            ]
+          },
+          "accruingRate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AccruingRateInput"
+              }
+            ]
+          },
+          "firstMonthAccruingRate": {
+            "enum": [
+              "Fixed",
+              "Calculated"
+            ],
+            "type": "string"
+          },
+          "maxAccruing": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AccruingInput"
+              }
+            ]
+          },
+          "workDayLength": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.WorkDayLengthInput"
+              }
+            ]
+          },
+          "vacationEarnings": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.VacationEarningsInput"
+              }
+            ]
+          },
+          "carryOver": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.CarryOverInput"
+              }
+            ]
+          },
+          "canEditDaysInRequest": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "allowedVacationLengthInRow": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.VacationLengthInRowInOut]"
+              }
+            ]
+          },
+          "allowedNegativeBalance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.NegativeBalanceInOut]"
+              }
+            ]
+          },
+          "salaryCodeCompanyPaid": {
+            "type": "string",
+            "nullable": true
+          },
+          "salaryCodeCompanyPaid2": {
+            "type": "string",
+            "nullable": true
+          },
+          "renewAutomatically": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "createAutomatically": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "areShiftsRequiredForAccrual": {
+            "type": "boolean",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.VacationEarningsInput": {
+        "required": [
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.VacationEarningsInOut]"
+              }
+            ]
+          },
+          "calculationPeriod": {
+            "enum": [
+              "Employee",
+              "P",
+              "P12W",
+              "P13W",
+              "P52W",
+              "P0D"
+            ],
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AccountType.WorkDayLengthInput": {
+        "required": [
+          "fixedLength"
+        ],
+        "type": "object",
+        "properties": {
+          "fixedLength": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AccountType.AmountInput`1[Planday.OpenApi.Absence.Application.Enums.WorkDayLengthInOut]"
+              }
+            ]
+          },
+          "calculationPeriod": {
+            "enum": [
+              "Employee",
+              "P",
+              "P12W",
+              "P13W",
+              "P52W",
+              "P0D"
+            ],
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AmountInputModel": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AmountUnitInputModel"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AmountResultInput": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.AmountUnitResultInput"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AmountUnitInputModel": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.AmountUnitResultInput": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.ApproveAbsenceRequestInputModel": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "notify": {
+            "type": "boolean",
+            "default": false,
+            "nullable": true
+          },
+          "existingShifts": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.ExistingShiftsInputModel"
+              }
+            ],
+            "nullable": true
+          },
+          "coverShifts": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.CoverShiftsInputModel"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.CoverShiftsInputModel": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "enum": [
+              "DoNotCreate",
+              "CreateOpen"
+            ],
+            "type": "string",
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.CreateAdjustmentInputModel": {
+        "required": [
+          "effectiveDate",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "effectiveDate": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "comment": {
+            "type": "string",
+            "nullable": true
+          },
+          "externalReference": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.DeclineAbsenceRecordInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "notify": {
+            "type": "boolean",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.DenyAbsenceRequestInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "notify": {
+            "type": "boolean",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.EmployeeBalanceDateInputModel": {
+        "type": "object",
+        "properties": {
+          "employeeId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "balanceDate": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.ExistingShiftsChangeInputModel": {
+        "type": "object",
+        "properties": {
+          "shiftTypeId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Input.ExistingShiftsInputModel": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "enum": [
+              "NoAction",
+              "Delete",
+              "ChangeShiftType"
+            ],
+            "type": "string",
+            "default": 0
+          },
+          "change": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Input.ExistingShiftsChangeInputModel"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordAccountResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "costs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordAmountResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordAmountResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordAmountUnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordAmountUnitResult": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordRegistrationResult": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "time": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Common.Models.Range`1[System.String]"
+              }
+            ],
+            "nullable": true
+          },
+          "account": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordAccountResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "employeeId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "status": {
+            "enum": [
+              "Declined",
+              "Approved"
+            ],
+            "type": "string",
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "absencePeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Common.Models.Range`1[System.String]"
+              }
+            ],
+            "nullable": true
+          },
+          "registrations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordRegistrationResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AbsencePeriodResult": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "nullable": true
+          },
+          "end": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AbsenceRequestResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "employeeId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "note": {
+            "type": "string"
+          },
+          "absencePeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AbsencePeriodResult"
+              }
+            ],
+            "nullable": true
+          },
+          "status": {
+            "enum": [
+              "Submitted",
+              "Declined",
+              "Approved",
+              "Cancelled"
+            ],
+            "type": "string",
+            "nullable": true
+          },
+          "requestedAccounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.RequestedAccountsResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AccountCostResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AccountCostResult+AccountCostUnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AccountCostResult+AccountCostUnitResult": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AmountResultOutput": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AmountUnitResultOutput"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AmountUnitResultOutput": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.RequestedAccountsResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "cost": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AccountCostResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRegistrationResult": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "nullable": true
+          },
+          "account": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestRegistrationAccountResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestAccountResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "validityPeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Common.Models.Range`1[System.String]"
+              }
+            ],
+            "nullable": true
+          },
+          "balance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Common.Models.Change`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AmountResultOutput]]"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestDraftResult": {
+        "type": "object",
+        "properties": {
+          "absenceRequest": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestResult"
+              }
+            ],
+            "nullable": true
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestAccountResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestRegistrationAccountResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "costs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AmountResultOutput"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestResult": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "absenceType": {
+            "enum": [
+              "Vacation",
+              "Absence",
+              "Flextime",
+              "Accrued"
+            ],
+            "type": "string",
+            "nullable": true
+          },
+          "absencePeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Common.Models.Range`1[System.String]"
+              }
+            ],
+            "nullable": true
+          },
+          "registrations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRegistrationResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AbsenceTypeResult": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AbsenceAccountResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "typeId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceAmountResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceAmountUnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceAmountUnitResult": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceResult": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "balance": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceAmountResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.BalancedAccountResult": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AbsenceAccountResult"
+              }
+            ],
+            "nullable": true
+          },
+          "balance": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceAmountResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.EmployeeBalancedAccountsResult": {
+        "type": "object",
+        "properties": {
+          "employeeId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "balancedAccounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.BalancedAccountResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "employeeId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "typeId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "status": {
+            "enum": [
+              "Active",
+              "Inactive"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "validityPeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Common.Models.Range`1[System.String]"
+              }
+            ],
+            "nullable": true
+          },
+          "salaryCodeCompanyPaid": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccountTypeResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "absenceType": {
+            "type": "string",
+            "nullable": true
+          },
+          "spendingUnit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.SpendingUnitResult"
+              }
+            ],
+            "nullable": true
+          },
+          "startBalance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.StartBalanceResult"
+              }
+            ],
+            "nullable": true
+          },
+          "isDeleted": {
+            "type": "boolean"
+          },
+          "accruingRate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruingRateResult"
+              }
+            ],
+            "nullable": true
+          },
+          "employeeTypes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruedAccountTypeResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "absenceType": {
+            "type": "string",
+            "nullable": true
+          },
+          "spendingUnit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.SpendingUnitResult"
+              }
+            ],
+            "nullable": true
+          },
+          "startBalance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.StartBalanceResult"
+              }
+            ],
+            "nullable": true
+          },
+          "accruingPeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruingPeriodResult"
+              }
+            ],
+            "nullable": true
+          },
+          "spendingPeriod": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.SpendingPeriodResult"
+              }
+            ],
+            "nullable": true
+          },
+          "accruingRate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruingRateResult"
+              }
+            ],
+            "nullable": true
+          },
+          "firstMonthAccruingRate": {
+            "type": "string",
+            "nullable": true
+          },
+          "maxAccruing": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.MaxAccruingResult"
+              }
+            ],
+            "nullable": true
+          },
+          "employeeTypes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "workDayLength": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.WorkDayLengthResult"
+              }
+            ],
+            "nullable": true
+          },
+          "vacationEarnings": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.VacationEarningsResult"
+              }
+            ],
+            "nullable": true
+          },
+          "allowedVacationLengthInRow": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.AllowedVacationLengthInRowResult"
+              }
+            ],
+            "nullable": true
+          },
+          "allowedNegativeBalance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.AllowedNegativeBalanceResult"
+              }
+            ],
+            "nullable": true
+          },
+          "canEditDaysInRequest": {
+            "type": "boolean"
+          },
+          "carryOver": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.CarryOverResult"
+              }
+            ],
+            "nullable": true
+          },
+          "accountPriority": {
+            "type": "string",
+            "nullable": true
+          },
+          "salaryCodeCompanyPaid": {
+            "type": "string",
+            "nullable": true
+          },
+          "salaryCodeCompanyPaid2": {
+            "type": "string",
+            "nullable": true
+          },
+          "isDeleted": {
+            "type": "boolean"
+          },
+          "renewAutomatically": {
+            "type": "boolean"
+          },
+          "createAutomatically": {
+            "type": "boolean"
+          },
+          "areShiftsRequiredForAccrual": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruingPeriodResult": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.StartResult"
+              }
+            ],
+            "nullable": true
+          },
+          "value": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruingRateResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.UnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.AllowedNegativeBalanceResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.UnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.AllowedVacationLengthInRowResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.UnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.CarryOverResult": {
+        "type": "object",
+        "properties": {
+          "max": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.MaxResult"
+              }
+            ],
+            "nullable": true
+          },
+          "validTo": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.ValidToResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.FixedLengthResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.UnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.MaxAccruingResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.UnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.MaxResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.UnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.SpendingPeriodResult": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.StartResult"
+              }
+            ],
+            "nullable": true
+          },
+          "value": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.SpendingUnitResult": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.StartBalanceResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.UnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.StartResult": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "month": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.UnitResult": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.VacationEarningsResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.ValueResult"
+              }
+            ],
+            "nullable": true
+          },
+          "calculationPeriod": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.ValidToResult": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "month": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.ValueResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.UnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.AccountType.WorkDayLengthResult": {
+        "type": "object",
+        "properties": {
+          "fixedLength": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.FixedLengthResult"
+              }
+            ],
+            "nullable": true
+          },
+          "calculationPeriod": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "effectiveDate": {
+            "type": "string"
+          },
+          "comment": {
+            "type": "string",
+            "nullable": true
+          },
+          "externalReference": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdBy": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdDate": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.SubmitAbsenceRequestResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "enum": [
+              "Submitted",
+              "Declined",
+              "Approved",
+              "Cancelled"
+            ],
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.Transactions.TransactionAmountResult": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "unit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.Transactions.TransactionAmountUnitResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.Transactions.TransactionAmountUnitResult": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Application.Models.Output.Transactions.TransactionResult": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "costs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.Transactions.TransactionAmountResult"
+            },
+            "nullable": true
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Common.Models.Change`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AmountResultOutput]]": {
+        "type": "object",
+        "properties": {
+          "before": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AmountResultOutput"
+            },
+            "nullable": true
+          },
+          "after": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AmountResultOutput"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Absence.Common.Models.Range`1[System.String]": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "nullable": true
+          },
+          "end": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestDraftResult]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequestDraft.AbsenceRequestDraftResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceResult]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.AccountBalanceResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountResult]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruedAccountTypeResult]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccruedAccountTypeResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.OpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordResult]]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRecord.AbsenceRecordResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceTypeResult]]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceTypeResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Collections.Generic.IEnumerable`1[Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.EmployeeBalancedAccountsResult]]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountBalances.EmployeeBalancedAccountsResult"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.OpenApiResponse`1[System.Int64]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AbsenceRequestResult]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AbsenceRequest.AbsenceRequestResult"
+            }
+          },
+          "paging": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.Paging"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountResult]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountResult"
+            }
+          },
+          "paging": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.Paging"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccountTypeResult]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.AccountType.AccountTypeResult"
+            }
+          },
+          "paging": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.Paging"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.Adjustment.AdjustmentResult"
+            }
+          },
+          "paging": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.Paging"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.PagedOpenApiResponse`1[Planday.OpenApi.Absence.Application.Models.Output.Transactions.TransactionResult]": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Planday.OpenApi.Absence.Application.Models.Output.Transactions.TransactionResult"
+            }
+          },
+          "paging": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Planday.OpenApi.Common.Models.Paging"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Planday.OpenApi.Common.Models.Paging": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "description": "Authorization header using the Bearer token scheme. Example: \"Authorization: Bearer {access_token}\"",
+        "scheme": "Bearer"
+      }
+    }
+  },
+  "security": [
+    {
+      "Bearer": [ ]
+    }
+  ],
+  "tags": [
+    {
+      "name": "Accounts",
+      "description": "\n### Overview\n\n\n**Methods Supported** | `GET`\n--- | ---\n**Description** | Get account information\n**Scopes used** | `absence:read`"
+    },
+    {
+      "name": "Adjustments",
+      "description": "\n### Overview\n\n\n**Methods Supported** | `GET`, `POST`\n--- | ---\n**Description** | Read and create adjustments on accrued absence accounts to update their balances\n**Scopes used** | `absence:read`, `absence:create`"
+    },
+    {
+      "name": "AbsenceTypes",
+      "description": "\n### Overview\n\n\n**Methods Supported** | `GET`\n--- | ---\n**Description** | Handle available absence types\n**Scopes used** | `absence:read`"
+    },
+    {
+      "name": "AccountTypes",
+      "description": "\n### Overview\n\n\n**Methods Supported** | `GET`, `POST`, `PUT`, `DELETE`\n--- | ---\n**Description** | Handle Account types\n**Scopes used** | `absencesettings:read`, `absencesettings:create`, `absencesettings:update`, `absencesettings:delete`"
+    },
+    {
+      "name": "AbsenceRecords",
+      "description": "\n### Overview\n\n\n**Methods Supported** | `GET`, `PUT`\n--- | ---\n**Description** | Handle absence records\n**Scopes used** | `absence:read`, `absence:update`"
+    },
+    {
+      "name": "AbsenceRequests",
+      "description": "\n### Overview\n\n\n**Methods Supported** | `GET`, `POST`, `PUT`\n--- | ---\n**Description** | List, submit, cancel absence requests and drafts\n**Scopes used** | `absence:create`, `absence:read`"
+    },
+    {
+      "name": "AccountBalances",
+      "description": "\n### Overview\n\n\n**Methods Supported** | `GET`, `POST`\n--- | ---\n**Description** | Get general account balances and account balances specific to employees\n**Scopes used** | `absence:read`"
+    },
+    {
+      "name": "ToilTransactions",
+      "description": "\n### Overview\n\n\n**Methods Supported** | `GET`, `POST`\n--- | ---\n**Description** | Read and create transaction data on TOIL absence accounts\n**Scopes used** | `absence:read`, `absence:create`"
+    }
+  ]
+}
