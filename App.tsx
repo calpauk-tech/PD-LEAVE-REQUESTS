@@ -6,6 +6,7 @@ import React, {
   useCallback,
 } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
+import { TablePaginationBar } from "./TablePaginationBar";
 
 function getExpectedUnit(typeDef: any): string {
   if (!typeDef) return "";
@@ -238,8 +239,16 @@ import {
   fetchEmployeeGroups,
   fetchEmployeeTypes,
   fetchPortalInfo,
+  cancelAllPendingRequests,
 } from "./services/plandayService";
 import * as XLSX from "xlsx-js-style";
+import { IdentityMethodSelector } from "./mapping/IdentityMethodSelector";
+import { EmployeeMapper } from "./mapping/EmployeeMapper";
+import { FieldMapper } from "./mapping/FieldMapper";
+import { PreflightValidationScreen } from "./mapping/PreflightValidationScreen";
+import { parseSpreadsheetFile } from "./mapping/fileParser";
+import { buildNormalizedReviewRecords } from "./mapping/normalization";
+import type { IdentityConfig, ParsedFileResult } from "./mapping/types";
 
 // --- Custom Hooks ---
 function useUndoableState<T>(initialValue: T, maxHistory: number = 5) {
@@ -1028,6 +1037,10 @@ type AppStep =
   | "configure"
   | "migrateOptions"
   | "upload"
+  | "identity_method"
+  | "map_employees"
+  | "map_fields"
+  | "validation_errors"
   | "review"
   | "processing"
   | "summary";
@@ -1270,6 +1283,8 @@ const App: React.FC = () => {
   const [step1SuccessCount, setStep1SuccessCount] = useState(0);
   const [step1ErrorCount, setStep1ErrorCount] = useState(0);
   const abortRef = useRef<boolean>(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const [isAborting, setIsAborting] = useState(false);
   const mixedRequestsDataRef = useRef<{ empId: number, reqId: number, otherRegs: any[], originalAbsenceType: string, fromDates: string[] }[]>([]);
   const oldNotesDataRef = useRef<{ empId: number, start: string, end: string, note: string }[]>([]);
   const deniedRequestsDataRef = useRef<any[]>([]);
@@ -1279,12 +1294,23 @@ const App: React.FC = () => {
     setProcessingLogs((prev) => [...prev, { message, type }]);
   };
 
-  const handleAbort = () => {
+  const handleAbort = useCallback(() => {
     abortRef.current = true;
-    if (proceedToStep2) {
-       proceedToStep2();
+    setIsAborting(true);
+    addLog("Abort requested by user. Cancelling active requests immediately...", "error");
+
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch (e) {}
     }
-  };
+
+    cancelAllPendingRequests();
+
+    if (proceedToStep2) {
+      proceedToStep2();
+    }
+  }, [proceedToStep2]);
 
   // Step 2 State
   const [accountTypes, setAccountTypes] = useState<AccountType[]>([]);
@@ -1399,7 +1425,7 @@ const App: React.FC = () => {
   >(new Set());
 
   // Review Step - Pagination State
-  const [reviewRowsPerPage, setReviewRowsPerPage] = useState<number | "All">(
+  const [reviewRowsPerPage, setReviewRowsPerPage] = useState<number | "ALL">(
     50,
   );
   const [reviewPage, setReviewPage] = useState<number>(1);
@@ -1438,6 +1464,15 @@ const App: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   // Store uploaded file to allow re-processing with different settings
   const [lastUploadedFile, setLastUploadedFile] = useState<File | null>(null);
+
+  // Multi-Stage File Upload & Mapping Flow State
+  const [useGuidedMapping, setUseGuidedMapping] = useState<boolean>(true);
+  const [uploadedFileData, setUploadedFileData] = useState<ParsedFileResult | null>(null);
+  const [identityConfig, setIdentityConfig] = useState<IdentityConfig | null>(null);
+  const [employeeMapping, setEmployeeMapping] = useState<Map<number, number | null>>(new Map());
+  const [fieldMapping, setFieldMapping] = useState<Map<string, string>>(new Map());
+  const [duplicateHeaderNotification, setDuplicateHeaderNotification] = useState<string[] | null>(null);
+  const employeeAccountsCacheRef = useRef<Map<number, LeaveAccount[]>>(new Map());
 
   // Floating Tooltip State
   const [activeTooltip, setActiveTooltip] = useState<{
@@ -1632,6 +1667,12 @@ const App: React.FC = () => {
     setUploadValidityErrors(null);
     setDateReportExample(null);
     setLastUploadedFile(null);
+    setUploadedFileData(null);
+    setIdentityConfig(null);
+    setEmployeeMapping(new Map());
+    setFieldMapping(new Map());
+    setDuplicateHeaderNotification(null);
+    employeeAccountsCacheRef.current.clear();
     setSortConfig(null);
     setSearchQuery("");
     setHasAttemptedSubmit(false);
@@ -1681,12 +1722,17 @@ const App: React.FC = () => {
     setUploadConflicts(null);
     setUploadValidityErrors(null);
     abortRef.current = false;
+    setIsAborting(false);
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    const signal = abortController.signal;
 
     try {
       const FETCH_BATCH_SIZE = 50;
       setLoadingText("Fetching all employees...");
       setProgress(5);
-      let employees = await fetchEmployees();
+      let employees = await fetchEmployees(signal);
+      if (abortRef.current || signal.aborted) throw new Error("Process stopped by user.");
 
       // basic local filtering
       if (
@@ -1718,14 +1764,15 @@ const App: React.FC = () => {
         if (includeEmployeeAccounts) {
           setLoadingText("Fetching accounts for the template...");
           for (let i = 0; i < employees.length; i += FETCH_BATCH_SIZE) {
-            if (abortRef.current) throw new Error("Process stopped by user.");
+            if (abortRef.current || signal.aborted) throw new Error("Process stopped by user.");
             const batchEmployees = employees.slice(i, i + FETCH_BATCH_SIZE);
             const promises = batchEmployees.map((emp) =>
-              fetchLeaveAccounts(emp.id, undefined, undefined).then(
+              fetchLeaveAccounts(emp.id, undefined, undefined, signal).then(
                 (accounts) => ({ emp, accounts }),
               ),
             );
             const results = await Promise.all(promises);
+            if (abortRef.current || signal.aborted) throw new Error("Process stopped by user.");
             allAccountsWithEmployeeInfo.push(...results);
             await new Promise((resolve) => setTimeout(resolve, 125));
             const completed = Math.min(i + FETCH_BATCH_SIZE, employees.length);
@@ -1876,14 +1923,15 @@ const App: React.FC = () => {
         setLoadingText("Fetching accounts...");
         const allAccountsWithEmployeeInfo: any[] = [];
         for (let i = 0; i < employees.length; i += FETCH_BATCH_SIZE) {
-          if (abortRef.current) throw new Error("Process stopped by user.");
+          if (abortRef.current || signal.aborted) throw new Error("Process stopped by user.");
           const batchEmployees = employees.slice(i, i + FETCH_BATCH_SIZE);
           const promises = batchEmployees.map((emp) =>
-            fetchLeaveAccounts(emp.id, undefined, undefined).then(
+            fetchLeaveAccounts(emp.id, undefined, undefined, signal).then(
               (accounts) => ({ emp, accounts }),
             ),
           );
           const results = await Promise.all(promises);
+          if (abortRef.current || signal.aborted) throw new Error("Process stopped by user.");
           allAccountsWithEmployeeInfo.push(...results);
           await new Promise((resolve) => setTimeout(resolve, 125));
           const completed = Math.min(i + FETCH_BATCH_SIZE, employees.length);
@@ -1973,18 +2021,59 @@ const App: React.FC = () => {
         setCurrentStep("review");
       }
     } catch (err: any) {
-      handleApiError(err);
+      if (!abortRef.current && err?.name !== "AbortError" && err?.message !== "Process stopped by user.") {
+        handleApiError(err);
+      }
       console.error(err);
     } finally {
       setIsLoading((prev) => ({ ...prev, template: false }));
+      setIsAborting(false);
       setHasAttemptedSubmit(false);
     }
   };
-  const processUploadedFile = (file: File, formatOverride?: "EU" | "US") => {
+  const processUploadedFile = async (file: File, formatOverride?: "EU" | "US") => {
     setError(null);
     setUploadConflicts(null);
     setUploadValidityErrors(null);
     setLastUploadedFile(file);
+
+    // Multi-stage Guided Entity & Column Mapping flow
+    if (updateMethod === "excel" && useGuidedMapping) {
+      try {
+        setIsLoading((prev) => ({ ...prev, template: true }));
+        setLoadingText("Reading spreadsheet & preparing mapping flow...");
+
+        const parsed = await parseSpreadsheetFile(file);
+        if (parsed.rows.length === 0) {
+          setError("The uploaded file appears to be empty or contains no data rows.");
+          setIsLoading((prev) => ({ ...prev, template: false }));
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          return;
+        }
+
+        setUploadedFileData(parsed);
+        if (parsed.duplicateHeadersNotification && parsed.duplicateHeadersNotification.length > 0) {
+          setDuplicateHeaderNotification(parsed.duplicateHeadersNotification);
+        } else {
+          setDuplicateHeaderNotification(null);
+        }
+
+        // Reset mapping states
+        setIdentityConfig(null);
+        setEmployeeMapping(new Map());
+        setFieldMapping(new Map());
+
+        setIsLoading((prev) => ({ ...prev, template: false }));
+        setCurrentStep("identity_method");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } catch (err: any) {
+        console.error("Failed to parse file for guided mapping", err);
+        setIsLoading((prev) => ({ ...prev, template: false }));
+        setError(`Failed to read file: ${err.message || "Unknown error"}`);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = async (event) => {
@@ -2375,6 +2464,80 @@ const App: React.FC = () => {
     processUploadedFile(lastUploadedFile, newFormat);
   };
 
+  const handleIdentityConfigConfirm = (config: IdentityConfig) => {
+    setIdentityConfig(config);
+    setCurrentStep("map_employees");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleEmployeeMappingConfirm = (empMap: Map<number, number | null>) => {
+    setEmployeeMapping(empMap);
+    setCurrentStep("map_fields");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleFieldMappingConfirm = async (fMap: Map<string, string>) => {
+    if (!uploadedFileData || !identityConfig) return;
+    setFieldMapping(fMap);
+    setIsLoading((prev) => ({ ...prev, template: true }));
+    setLoadingText("Resolving leave accounts & normalizing records...");
+
+    try {
+      // 1. Fetch leave accounts for all mapped employees
+      const uniqueEmpIds = Array.from(new Set(Array.from(employeeMapping.values()).filter(Boolean))) as number[];
+      const cache = employeeAccountsCacheRef.current;
+
+      for (const empId of uniqueEmpIds) {
+        if (!cache.has(empId)) {
+          try {
+            const accs = await fetchLeaveAccounts(empId, undefined, undefined);
+            cache.set(empId, accs);
+          } catch (err) {
+            console.error("Failed to fetch leave accounts for", empId, err);
+            cache.set(empId, []);
+          }
+        }
+      }
+
+      // 2. Build normalized reviews
+      const reviews = buildNormalizedReviewRecords(
+        uploadedFileData.rows,
+        employeeMapping,
+        fMap,
+        allEmployees,
+        accountTypes,
+        cache,
+        downloadDateFormat,
+        identityConfig
+      );
+
+      if (reviews.length === 0) {
+        setError("No valid records were created with the current mappings.");
+        setIsLoading((prev) => ({ ...prev, template: false }));
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+
+      const hasValidationErrors = reviews.some((r) => r.isValidationError || r.error);
+
+      clearAdjustmentsHistory(reviews);
+      resetReviewSessionState(reviews);
+
+      setIsLoading((prev) => ({ ...prev, template: false }));
+      if (hasValidationErrors) {
+        setCurrentStep("validation_errors");
+      } else {
+        setCurrentStep("review");
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err: any) {
+      console.error("Normalization error:", err);
+      setIsLoading((prev) => ({ ...prev, template: false }));
+      setError(err.message || "Failed to normalize data.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileInput = e.target;
     const file = fileInput.files?.[0];
@@ -2539,18 +2702,23 @@ const App: React.FC = () => {
     setLoadingText("Updating available balances...");
     setProgress(0);
     abortRef.current = false;
+    setIsAborting(false);
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    const signal = abortController.signal;
 
     try {
       const updatedAdjustments = [...adjustmentsToReview];
       const FETCH_BATCH_SIZE = 50;
 
       for (let i = 0; i < updatedAdjustments.length; i += FETCH_BATCH_SIZE) {
-        if (abortRef.current) break;
+        if (abortRef.current || signal.aborted) break;
 
         const batch = updatedAdjustments.slice(i, i + FETCH_BATCH_SIZE);
         const promises = batch.map(async (item) => {
           if (item.balanceDate && item.accountId) {
             try {
+              if (abortRef.current || signal.aborted) return item;
               let queryDate = item.balanceDate || "";
               if (queryDate.includes("/")) {
                 const parts = queryDate.split("/");
@@ -2569,6 +2737,7 @@ const App: React.FC = () => {
               const balanceData = await fetchAccountBalance(
                 item.accountId,
                 queryDate,
+                signal,
               );
 
               let newAvail = balanceData.balance;
@@ -2594,7 +2763,10 @@ const App: React.FC = () => {
                 availableBalance: newAvail,
                 adjustment: newAdj,
               };
-            } catch (err) {
+            } catch (err: any) {
+              if (abortRef.current || signal.aborted || err?.name === "AbortError") {
+                return item;
+              }
               console.error(
                 "Failed to fetch balance for account",
                 item.accountId,
@@ -2607,6 +2779,7 @@ const App: React.FC = () => {
         });
 
         const batchResults = await Promise.all(promises);
+        if (abortRef.current || signal.aborted) break;
 
         batchResults.forEach((result, idx) => {
           updatedAdjustments[i + idx] = result;
@@ -2619,14 +2792,17 @@ const App: React.FC = () => {
         await new Promise((r) => setTimeout(r, 125));
       }
 
-      if (!abortRef.current) {
+      if (!abortRef.current && !signal.aborted) {
         setAdjustmentsToReview(updatedAdjustments);
       }
-    } catch (err) {
-      console.error("Error updating balances", err);
-      handleApiError(new Error("Failed to update available balances."));
+    } catch (err: any) {
+      if (!abortRef.current && err?.name !== "AbortError") {
+        console.error("Error updating balances", err);
+        handleApiError(new Error("Failed to update available balances."));
+      }
     } finally {
       setIsUpdatingBalances(false);
+      setIsAborting(false);
       setProgress(0);
     }
   };
@@ -3033,9 +3209,12 @@ const App: React.FC = () => {
   ]);
 
   const paginatedReviews = useMemo(() => {
-    if (reviewRowsPerPage === "All") return sortedReviews;
-    const start = (reviewPage - 1) * reviewRowsPerPage;
-    return sortedReviews.slice(start, start + reviewRowsPerPage);
+    const actualRowsPerPage =
+      reviewRowsPerPage === "ALL"
+        ? Math.max(1, sortedReviews.length)
+        : reviewRowsPerPage;
+    const start = (reviewPage - 1) * actualRowsPerPage;
+    return sortedReviews.slice(start, start + actualRowsPerPage);
   }, [sortedReviews, reviewPage, reviewRowsPerPage]);
 
   const reviewBundleCounts = useMemo(() => {
@@ -3275,11 +3454,17 @@ const App: React.FC = () => {
 
   const executeBatchUpdate = async () => {
     abortRef.current = false;
+    setIsAborting(false);
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    const signal = abortController.signal;
+
     mixedRequestsDataRef.current = [];
     oldNotesDataRef.current = [];
     deniedRequestsDataRef.current = [];
     mixedRequestsExportDataRef.current = [];
     setShowConfirmModal(false);
+    setShowAbortModal(false);
     setCurrentStep("processing");
     setIsLoading((prev) => ({ ...prev, submitting: true }));
     setProgress(0);
@@ -3296,7 +3481,7 @@ const App: React.FC = () => {
     } catch (err) {}
 
     const summary: any[] = [];
-    const UPDATE_BATCH_SIZE = 50;
+    const UPDATE_BATCH_SIZE = 6;
 
     try {
       let pendingAdjustments = [...adjustmentsToReview];
@@ -3307,6 +3492,7 @@ const App: React.FC = () => {
         let uniqueEmployees = Array.from(new Set(pendingAdjustments.map(a => a.employeeId)));
         
         while (!step0Passed) {
+            if (abortRef.current || signal.aborted) break;
             setProcessingPhase(0);
             setLoadingText("Step 0: Validating destination accounts for all requests...");
             addLog("Step 0: Validating destination accounts...", "info");
@@ -3317,17 +3503,18 @@ const App: React.FC = () => {
             let completedValidation = 0;
 
             for (let i = 0; i < uniqueEmployees.length; i += UPDATE_BATCH_SIZE) {
-              if (abortRef.current) break;
+              if (abortRef.current || signal.aborted) break;
               const batch = uniqueEmployees.slice(i, i + UPDATE_BATCH_SIZE);
               await Promise.all(batch.map(async (empId) => {
-                 if (!empId) return;
+                 if (!empId || abortRef.current || signal.aborted) return;
                  try {
                     let accounts: any[] = [];
-                    try { accounts = await fetchLeaveAccounts(empId, undefined, undefined); } catch(e) {}
+                    try { accounts = await fetchLeaveAccounts(empId, undefined, undefined, signal); } catch(e) {}
+                    if (abortRef.current || signal.aborted) return;
                     
                     const empRequests = pendingAdjustments.filter(a => a.employeeId === empId);
                     for (const req of empRequests) {
-                       if (!req.start) continue;
+                       if (!req.start || abortRef.current || signal.aborted) continue;
                        const rStart = new Date(req.start);
                        
                        const validToAccount = accounts.find((a: any) => {
@@ -3348,11 +3535,12 @@ const App: React.FC = () => {
                     console.error("Step 0 validation failed for employee", empId, e);
                  }
               }));
+              if (abortRef.current || signal.aborted) break;
               completedValidation += batch.length;
               setProgress(Math.round((completedValidation / uniqueEmployees.length) * 10)); // up to 10% for step 0
             }
 
-            if (abortRef.current) break;
+            if (abortRef.current || signal.aborted) break;
 
             if (missingDestinationErrors.length > 0) {
                addLog(`Step 0 validation failed: Missing destination accounts for ${currentMissingEmpIds.size} employees.`, "error");
@@ -3366,7 +3554,7 @@ const App: React.FC = () => {
                
                setValidationFailedState(null);
                
-               if (userChoice === "abort") {
+               if (userChoice === "abort" || abortRef.current || signal.aborted) {
                    abortRef.current = true;
                    addLog("Validation aborted by user.", "error");
                    break;
@@ -3382,8 +3570,9 @@ const App: React.FC = () => {
             }
         }
 
-        if (abortRef.current) {
+        if (abortRef.current || signal.aborted) {
             setIsLoading((prev) => ({ ...prev, submitting: false }));
+            setIsAborting(false);
             setCurrentStep("review");
             return;
         }
@@ -3414,19 +3603,20 @@ const App: React.FC = () => {
         
         uniqueEmployees = Array.from(new Set(pendingAdjustments.map(a => a.employeeId)));
         for (let i = 0; i < uniqueEmployees.length; i += UPDATE_BATCH_SIZE) {
-          if (abortRef.current) {
+          if (abortRef.current || signal.aborted) {
              addLog("Aborted by user", "error");
              break;
           }
           const batch = uniqueEmployees.slice(i, i + UPDATE_BATCH_SIZE);
           await Promise.all(batch.map(async (empId) => {
-            if (!empId) return;
+            if (!empId || abortRef.current || signal.aborted) return;
             try {
               const [allReqs, allRecords, accounts] = await Promise.all([
-                getAbsenceRequests(empId),
-                getAbsenceRecords(empId).catch(() => []),
-                fetchLeaveAccounts(empId, undefined, undefined).catch(() => [])
+                getAbsenceRequests(empId, signal),
+                getAbsenceRecords(empId, signal).catch(() => []),
+                fetchLeaveAccounts(empId, undefined, undefined, signal).catch(() => [])
               ]);
+              if (abortRef.current || signal.aborted) return;
               if (!accounts || accounts.length === 0) return;
               
               const processedIds = new Set<number>();
@@ -3503,6 +3693,7 @@ const App: React.FC = () => {
               };
 
               const handleMixedRequest = async (original: any) => {
+                 if (abortRef.current || signal.aborted) return;
                  let regs = original.registrations;
                  if (!regs && original.id) {
                     const inRecords = allRecords.find((rec: any) => rec.id === original.id);
@@ -3511,14 +3702,16 @@ const App: React.FC = () => {
                     }
                  }
                  if (!regs && original.id) {
+                    if (abortRef.current || signal.aborted) return;
                     try {
-                       const recDetails = await getAbsenceRecordById(original.id);
+                       const recDetails = await getAbsenceRecordById(original.id, signal);
                        if (recDetails && recDetails.registrations) regs = recDetails.registrations;
                     } catch(e) {}
                  }
                  if (!regs && original.id) {
+                    if (abortRef.current || signal.aborted) return;
                     try {
-                       const reqDetails = await getAbsenceRequestById(original.id);
+                       const reqDetails = await getAbsenceRequestById(original.id, signal);
                        if (reqDetails && reqDetails.registrations) regs = reqDetails.registrations;
                     } catch(e) {}
                  }
@@ -3582,8 +3775,10 @@ const App: React.FC = () => {
               };
 
               for (const r of reqsToDeny) {
+                if (abortRef.current || signal.aborted) break;
                 try {
-                  await denyAbsenceRequest(r.id);
+                  await denyAbsenceRequest(r.id, signal);
+                  if (abortRef.current || signal.aborted) break;
                   processedIds.add(r.id);
                   addLog(`Successfully denied pending/submitted absence request ${r.id} for employee ${empId}`, "success");
                   setStep1SuccessCount(prev => prev + 1);
@@ -3592,6 +3787,7 @@ const App: React.FC = () => {
                   saveOldNote(r);
                   await handleMixedRequest(r);
                 } catch (e: any) {
+                  if (abortRef.current || signal.aborted || e?.name === "AbortError") break;
                   console.error("Failed to deny request", r.id, e);
                   addLog(`Failed to deny request ${r.id} for employee ${empId}: ${e.message}`, "error");
                   setStep1ErrorCount(prev => prev + 1);
@@ -3608,8 +3804,10 @@ const App: React.FC = () => {
               });
 
               for (const r of recordsToDecline) {
+                if (abortRef.current || signal.aborted) break;
                 try {
-                  await declineAbsenceRecord(r.id);
+                  await declineAbsenceRecord(r.id, signal);
+                  if (abortRef.current || signal.aborted) break;
                   processedIds.add(r.id);
                   addLog(`Successfully declined approved absence record ${r.id} for employee ${empId}`, "success");
                   setStep1SuccessCount(prev => prev + 1);
@@ -3618,6 +3816,7 @@ const App: React.FC = () => {
                   saveOldNote(r);
                   await handleMixedRequest(r);
                 } catch(e: any) {
+                  if (abortRef.current || signal.aborted || e?.name === "AbortError") break;
                   console.error("Failed to decline record", r.id, e);
                   addLog(`Failed to decline record ${r.id} for employee ${empId}: ${e.message}`, "error");
                   setStep1ErrorCount(prev => prev + 1);
@@ -3625,16 +3824,18 @@ const App: React.FC = () => {
                 }
               }
             } catch (err: any) {
+              if (abortRef.current || signal.aborted || err?.name === "AbortError") return;
               console.error("Failed to fetch/process requests for employee " + empId, err);
               addLog(`Failed to fetch/process requests for employee ${empId}: ${err.message}`, "error");
               step1FailedEmpIds.add(empId);
             }
           }));
+          if (abortRef.current || signal.aborted) break;
           completedEmployees += batch.length;
           setProgress(Math.round((completedEmployees / uniqueEmployees.length) * 100));
         }
 
-        if (step1FailedEmpIds.size > 0) {
+        if (step1FailedEmpIds.size > 0 && !abortRef.current && !signal.aborted) {
            pendingAdjustments = pendingAdjustments.filter(row => {
               if (row.employeeId && step1FailedEmpIds.has(row.employeeId)) {
                   row.status = "error";
@@ -3653,12 +3854,14 @@ const App: React.FC = () => {
            }
         }
 
-        if (abortRef.current) {
+        if (abortRef.current || signal.aborted) {
            pendingAdjustments.forEach((row: any) => {
-              row.status = "error";
-              row.error = "Aborted by user during step 1";
-              row.timestamp = new Date().toLocaleString();
-              summary.push(row);
+              if (!summary.some(s => s.id === row.id)) {
+                row.status = "error";
+                row.error = "Aborted by user during step 1";
+                row.timestamp = new Date().toLocaleString();
+                summary.push(row);
+              }
            });
            setUpdateSummary(summary);
            setAdjustmentsToReview(summary as any);
@@ -3670,12 +3873,14 @@ const App: React.FC = () => {
         await new Promise<void>((resolve) => {
           setProceedToStep2(() => resolve);
         });
-        if (abortRef.current) {
+        if (abortRef.current || signal.aborted) {
            pendingAdjustments.forEach((row: any) => {
-              row.status = "error";
-              row.error = "Aborted by user during step 1";
-              row.timestamp = new Date().toLocaleString();
-              summary.push(row);
+              if (!summary.some(s => s.id === row.id)) {
+                row.status = "error";
+                row.error = "Aborted by user during step 1";
+                row.timestamp = new Date().toLocaleString();
+                summary.push(row);
+              }
            });
            setUpdateSummary(summary);
            setAdjustmentsToReview(summary as any);
@@ -3899,23 +4104,24 @@ const App: React.FC = () => {
       let completedRequests = 0;
 
       for (let i = 0; i < employeeQueues.length; i += UPDATE_BATCH_SIZE) {
-        if (abortRef.current) break;
+        if (abortRef.current || signal.aborted) break;
         const batchOfQueues = employeeQueues.slice(i, i + UPDATE_BATCH_SIZE);
         const promises = batchOfQueues.map(async (queue) => {
           for (const req of queue) {
-            if (abortRef.current) break;
+            if (abortRef.current || signal.aborted) break;
             const empId = req.payload.employeeId;
             try {
               const targetStatus =
                 req.originalRows[0].requestStatus || "Requested";
-              const res = await postAbsenceRequest(req.payload);
+              const res = await postAbsenceRequest(req.payload, signal);
+              if (abortRef.current || signal.aborted) break;
               let reqId = res.id || res.data?.id;
 
               if (reqId && targetStatus === "Approved") {
-                await approveAbsenceRequest(reqId);
+                await approveAbsenceRequest(reqId, signal);
                 addLog(`Created and approved request ${reqId} for employee ${empId}`, "success");
               } else if (reqId && targetStatus === "Denied") {
-                await denyAbsenceRequest(reqId);
+                await denyAbsenceRequest(reqId, signal);
                 addLog(`Created and denied request ${reqId} for employee ${empId}`, "success");
               } else {
                 addLog(`Created request ${reqId} for employee ${empId} (Status: ${targetStatus})`, "success");
@@ -3939,6 +4145,7 @@ const App: React.FC = () => {
                 summary.push(row);
               });
             } catch (err: any) {
+              if (abortRef.current || signal.aborted || err?.name === "AbortError") break;
               addLog(`Failed to create request for employee ${empId}: ${err.message}`, "error");
               req.originalRows.forEach((row: any) => {
                 row.status = "error";
@@ -3957,11 +4164,13 @@ const App: React.FC = () => {
         });
 
         await Promise.all(promises);
+        if (abortRef.current || signal.aborted) break;
       }
 
-      if (abortRef.current) {
+      if (abortRef.current || signal.aborted) {
          finalRequests.forEach((req) => {
-             if (!summary.includes(req.originalRows[0] as never)) {
+             const firstRow = req.originalRows[0];
+             if (!summary.some(s => s.id === firstRow.id)) {
                  req.originalRows.forEach((row: any) => {
                      row.status = "error";
                      row.error = "Aborted by user";
@@ -3975,7 +4184,9 @@ const App: React.FC = () => {
       setUpdateSummary(summary);
       setAdjustmentsToReview(summary as any);
     } catch (err: any) {
-      handleApiError(err);
+      if (!abortRef.current && err?.name !== "AbortError") {
+        handleApiError(err);
+      }
     } finally {
       // Release Wake Lock
       if (wakeLock) {
@@ -3984,6 +4195,7 @@ const App: React.FC = () => {
         } catch (e) {}
       }
       setIsLoading((prev) => ({ ...prev, submitting: false }));
+      setIsAborting(false);
       setProgress(100);
       setCurrentStep("summary");
     }
@@ -4220,7 +4432,14 @@ const App: React.FC = () => {
   };
 
   const stepConfig = getStepConfig(updateMethod);
-  const stepIndex = stepConfig.order.indexOf(currentStep as any);
+  const effectiveStepForMainStepper =
+    currentStep === "identity_method" ||
+    currentStep === "map_employees" ||
+    currentStep === "map_fields" ||
+    currentStep === "validation_errors"
+      ? "upload"
+      : currentStep;
+  const stepIndex = stepConfig.order.indexOf(effectiveStepForMainStepper as any);
 
   // Sort summary: Do not sort by status anymore to maintain bundle order
   const sortedSummary = [...updateSummary];
@@ -5460,18 +5679,171 @@ const App: React.FC = () => {
             </div>
           )}
 
+          {/* Sub-Stepper for Multi-Stage Import Flow */}
+          {(currentStep === "upload" ||
+            currentStep === "identity_method" ||
+            currentStep === "map_employees" ||
+            currentStep === "map_fields" ||
+            currentStep === "validation_errors") &&
+            updateMethod === "excel" && (
+              <div className="max-w-4xl mx-auto mb-6 bg-white border border-gray-200 rounded-xl p-3.5 shadow-xs">
+                <div className="flex items-center justify-between text-xs font-semibold overflow-x-auto gap-2">
+                  <div
+                    className={`flex items-center gap-1.5 whitespace-nowrap ${
+                      currentStep === "upload"
+                        ? "text-blue-600 font-bold"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    <span
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                        currentStep === "upload"
+                          ? "bg-blue-600 text-white"
+                          : "bg-gray-200 text-gray-700"
+                      }`}
+                    >
+                      1
+                    </span>
+                    <span>Upload File</span>
+                  </div>
+                  <span className="text-gray-300">───</span>
+                  <div
+                    className={`flex items-center gap-1.5 whitespace-nowrap ${
+                      currentStep === "identity_method"
+                        ? "text-blue-600 font-bold"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    <span
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                        currentStep === "identity_method"
+                          ? "bg-blue-600 text-white"
+                          : "bg-gray-200 text-gray-700"
+                      }`}
+                    >
+                      2
+                    </span>
+                    <span>Identity Method</span>
+                  </div>
+                  <span className="text-gray-300">───</span>
+                  <div
+                    className={`flex items-center gap-1.5 whitespace-nowrap ${
+                      currentStep === "map_employees"
+                        ? "text-blue-600 font-bold"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    <span
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                        currentStep === "map_employees"
+                          ? "bg-blue-600 text-white"
+                          : "bg-gray-200 text-gray-700"
+                      }`}
+                    >
+                      3
+                    </span>
+                    <span>Employee Mapping</span>
+                  </div>
+                  <span className="text-gray-300">───</span>
+                  <div
+                    className={`flex items-center gap-1.5 whitespace-nowrap ${
+                      currentStep === "map_fields"
+                        ? "text-blue-600 font-bold"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    <span
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                        currentStep === "map_fields"
+                          ? "bg-blue-600 text-white"
+                          : "bg-gray-200 text-gray-700"
+                      }`}
+                    >
+                      4
+                    </span>
+                    <span>Column Mapping</span>
+                  </div>
+                  <span className="text-gray-300">───</span>
+                  <div
+                    className={`flex items-center gap-1.5 whitespace-nowrap ${
+                      currentStep === "validation_errors" || currentStep === "review"
+                        ? "text-blue-600 font-bold"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    <span
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                        currentStep === "validation_errors" || currentStep === "review"
+                          ? "bg-blue-600 text-white"
+                          : "bg-gray-200 text-gray-700"
+                      }`}
+                    >
+                      5
+                    </span>
+                    <span>Review & Confirm</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
           {currentStep === "upload" && (
             <div className="bg-white p-8 rounded-lg shadow-md max-w-[672px] mx-auto">
               {/* ... Upload Step UI ... */}
               <h2 className="text-2xl font-bold mb-2 text-gray-800">
-                Upload Template
+                Upload Spreadsheet File
               </h2>
-              <p className="text-gray-500 mb-6">
-                Select the completed Excel file with your leave requests. Make
-                sure to use the provided template format or similar format. The
-                requests will be read from the file and prepared for your review
-                before the upload process starts.
+              <p className="text-gray-500 mb-6 text-sm">
+                Upload your Excel (.xlsx, .xls) or CSV (.csv) file. We'll automatically inspect header columns and guide you through employee identity matching, column mapping, and review.
               </p>
+
+              {/* Guided Mapping Toggle */}
+              <div className="mb-6 p-4 bg-blue-50/60 border border-blue-200 rounded-xl flex items-center justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-blue-100 text-blue-700 rounded-lg mt-0.5">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-900">
+                      Guided Entity & Column Mapping (Recommended)
+                    </h4>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      Match rows to employees with fuzzy heuristics (1-to-1 constraint) and map file headers with smart aliases.
+                    </p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer ml-4">
+                  <input
+                    type="checkbox"
+                    checked={useGuidedMapping}
+                    onChange={(e) => setUseGuidedMapping(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              {/* Duplicate Headers Notification */}
+              {duplicateHeaderNotification && (
+                <div className="mb-6 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-md">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <ExclamationIcon className="h-5 w-5 text-amber-500" />
+                    </div>
+                    <div className="ml-3 w-full">
+                      <h4 className="text-sm font-bold text-amber-900">
+                        Duplicate Headers Renamed
+                      </h4>
+                      <ul className="list-disc list-inside mt-1 text-xs text-amber-800 space-y-1">
+                        {duplicateHeaderNotification.map((msg, i) => (
+                          <li key={i}>{msg}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {uploadConflicts && (
                 <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-md">
@@ -5567,12 +5939,12 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              {/* File input is always present but hidden */}
+              {/* File input */}
               <input
                 id="file-upload-input"
                 type="file"
                 onChange={handleFileInputChange}
-                accept=".xlsx, .xls"
+                accept=".xlsx, .xls, .csv"
                 className="hidden"
               />
 
@@ -5590,12 +5962,17 @@ const App: React.FC = () => {
                     <UploadCloudIcon
                       className={`w-12 h-12 mb-4 ${isDragging ? "text-blue-500" : "text-gray-400"}`}
                     />
-                    <p className="text-gray-600 font-medium">
+                    <p className="text-gray-700 font-semibold text-base mb-1">
                       Drop file or click to browse
                     </p>
-                    <p className="text-gray-400 text-sm mt-2">
-                      Supports .xlsx, .xls
+                    <p className="text-gray-500 text-xs mt-1">
+                      Supports Excel (.xlsx, .xls) and CSV (.csv)
                     </p>
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded font-mono font-medium">.xlsx</span>
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded font-mono font-medium">.xls</span>
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded font-mono font-medium">.csv (UTF-8 / windows-1252)</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -5611,12 +5988,81 @@ const App: React.FC = () => {
             </div>
           )}
 
+          {/* Sub-Step 2: Identity Method Selection */}
+          {currentStep === "identity_method" && uploadedFileData && (
+            <IdentityMethodSelector
+              headers={uploadedFileData.headers}
+              sampleRows={uploadedFileData.rows}
+              allEmployees={allEmployees}
+              initialConfig={identityConfig || undefined}
+              onConfirm={handleIdentityConfigConfirm}
+              onBack={() => setCurrentStep("upload")}
+            />
+          )}
+
+          {/* Sub-Step 3: Employee Mapping */}
+          {currentStep === "map_employees" && uploadedFileData && identityConfig && (
+            <EmployeeMapper
+              rows={uploadedFileData.rows}
+              headers={uploadedFileData.headers}
+              identityConfig={identityConfig}
+              allEmployees={allEmployees}
+              initialMapping={employeeMapping}
+              onConfirm={handleEmployeeMappingConfirm}
+              onBack={() => setCurrentStep("identity_method")}
+            />
+          )}
+
+          {/* Sub-Step 4: Column / Field Mapping */}
+          {currentStep === "map_fields" && uploadedFileData && identityConfig && (
+            <FieldMapper
+              headers={uploadedFileData.headers}
+              sampleRows={uploadedFileData.rows}
+              identityConfig={identityConfig}
+              accountTypes={accountTypes}
+              initialMapping={fieldMapping.size > 0 ? fieldMapping : undefined}
+              onConfirm={handleFieldMappingConfirm}
+              onBack={() => setCurrentStep("map_employees")}
+            />
+          )}
+
+          {/* Sub-Step 5: Pre-flight Validation Errors Screen */}
+          {currentStep === "validation_errors" && (
+            <PreflightValidationScreen
+              reviews={adjustmentsToReview}
+              onProceedToReview={() => {
+                setCurrentStep("review");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              onBackToFields={() => {
+                setCurrentStep("map_fields");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              onBackToEmployees={() => {
+                setCurrentStep("map_employees");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          )}
+
           {currentStep === "review" && (
             <div className="bg-white px-4 py-8 md:px-8 border-x border-b shadow-md w-full max-w-[1400px] mx-auto rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
                 <h2 className="text-2xl font-bold text-gray-800">
                   Review & Send requests
                 </h2>
+                {uploadedFileData && updateMethod === "excel" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentStep("map_fields");
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-lg shadow-2xs transition-colors self-start sm:self-auto"
+                  >
+                    <span>&larr; Back to Column Mapping</span>
+                  </button>
+                )}
               </div>
 
               {/* Date Format Detection Report - Conditionally Shown */}
@@ -6027,23 +6473,51 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              <div className="max-h-[800px] overflow-y-auto border rounded-lg shadow-sm">
+              <div className="max-h-[800px] overflow-y-auto border border-gray-200 rounded-t-lg shadow-sm">
                 <table className="w-full text-sm text-left relative">
                   <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10 shadow-sm">
                     <tr>
                       <th scope="col" className="px-4 py-3 w-10">
                         <input
                           type="checkbox"
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                           checked={
                             sortedReviews.length > 0 &&
-                            Array.from(selectedReviewIds).some((id) =>
-                              sortedReviews.some((r) => r.id === id),
+                            sortedReviews.every((item) =>
+                              selectedReviewIds.has(item.id),
                             )
                           }
-                          onChange={(e) => {
-                            if (e.target.checked) handleSelectFiltered();
-                            else setSelectedReviewIds(new Set());
+                          ref={(input) => {
+                            if (input) {
+                              const isAllSelected =
+                                sortedReviews.length > 0 &&
+                                sortedReviews.every((item) =>
+                                  selectedReviewIds.has(item.id),
+                                );
+                              input.indeterminate =
+                                !isAllSelected &&
+                                sortedReviews.some((item) =>
+                                  selectedReviewIds.has(item.id),
+                                );
+                            }
+                          }}
+                          onChange={() => {
+                            const isAllSelected =
+                              sortedReviews.length > 0 &&
+                              sortedReviews.every((item) =>
+                                selectedReviewIds.has(item.id),
+                              );
+                            const newSelected = new Set(selectedReviewIds);
+                            if (isAllSelected) {
+                              sortedReviews.forEach((item) =>
+                                newSelected.delete(item.id),
+                              );
+                            } else {
+                              sortedReviews.forEach((item) =>
+                                newSelected.add(item.id),
+                              );
+                            }
+                            setSelectedReviewIds(newSelected);
                           }}
                         />
                       </th>
@@ -6388,9 +6862,32 @@ const App: React.FC = () => {
                         </React.Fragment>
                       );
                     })}
+                    {sortedReviews.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={updateMethod === "migrate" ? 9 : 8}
+                          className="text-center py-8 text-gray-500 font-medium"
+                        >
+                          No matching leave requests found.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+
+              {/* Table Pagination Bar */}
+              <TablePaginationBar
+                totalItems={sortedReviews.length}
+                currentPage={reviewPage}
+                onPageChange={setReviewPage}
+                rowsPerPage={reviewRowsPerPage}
+                onRowsPerPageChange={(size) => {
+                  setReviewRowsPerPage(size);
+                  setReviewPage(1);
+                }}
+                pageSizeOptions={[25, 50, 100, "ALL"]}
+              />
 
               {/* Payload Example Monitor */}
               {adjustmentsToReview.length > 0 && (
@@ -6509,129 +7006,6 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              {/* Pagination Footer */}
-
-              <div className="flex items-center justify-start gap-6 mt-4 text-sm text-slate-700">
-                <div className="flex items-center border border-gray-300 rounded-md shadow-sm bg-white h-9">
-                  <button
-                    onClick={() => setReviewPage((p) => Math.max(1, p - 1))}
-                    disabled={reviewPage === 1}
-                    className="px-3 h-full hover:bg-gray-50 border-r border-gray-300 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-slate-500"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 19l-7-7 7-7"
-                      />
-                    </svg>
-                  </button>
-                  <span className="px-4 h-full flex items-center font-bold whitespace-nowrap min-w-[7rem] justify-center text-slate-800">
-                    Page {reviewPage} of{" "}
-                    {reviewRowsPerPage === "All"
-                      ? 1
-                      : Math.ceil(sortedReviews.length / reviewRowsPerPage) ||
-                        1}
-                  </span>
-                  <button
-                    onClick={() =>
-                      setReviewPage((p) =>
-                        Math.min(
-                          Math.ceil(
-                            sortedReviews.length /
-                              (reviewRowsPerPage as number),
-                          ),
-                          p + 1,
-                        ),
-                      )
-                    }
-                    disabled={
-                      reviewRowsPerPage === "All" ||
-                      reviewPage ===
-                        Math.ceil(sortedReviews.length / reviewRowsPerPage) ||
-                      sortedReviews.length === 0
-                    }
-                    className="px-3 h-full hover:bg-gray-50 border-l border-gray-300 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-slate-500"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 5l7 7-7 7"
-                      />
-                    </svg>
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2 font-medium text-slate-600">
-                  <span>Rows per page:</span>
-                  <div className="relative flex items-center">
-                    <select
-                      value={reviewRowsPerPage}
-                      onChange={(e) => {
-                        const val =
-                          e.target.value === "All"
-                            ? "All"
-                            : Number(e.target.value);
-                        setReviewRowsPerPage(val);
-                        setReviewPage(1);
-                      }}
-                      className="appearance-none bg-transparent border-none focus:ring-0 focus:outline-none pr-5 cursor-pointer text-slate-800 font-medium"
-                    >
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                      <option value={200}>200</option>
-                      <option value="All">All</option>
-                    </select>
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-4 w-4 absolute right-0 pointer-events-none text-slate-600"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={1.5}
-                        d="M19 9l-7 7-7-7"
-                      />
-                    </svg>
-                  </div>
-                </div>
-
-                <div className="font-medium text-slate-600">
-                  Showing{" "}
-                  {sortedReviews.length === 0
-                    ? 0
-                    : reviewRowsPerPage === "All"
-                      ? 1
-                      : (reviewPage - 1) * reviewRowsPerPage + 1}{" "}
-                  to{" "}
-                  {reviewRowsPerPage === "All" || sortedReviews.length === 0
-                    ? sortedReviews.length
-                    : Math.min(
-                        reviewPage * reviewRowsPerPage,
-                        sortedReviews.length,
-                      )}{" "}
-                  of {sortedReviews.length} results
-                </div>
-              </div>
-
               <div className="mt-8 pt-6 border-t border-gray-200">
                 <div className="flex justify-end space-x-4 items-center">
                   <button
@@ -6731,13 +7105,42 @@ const App: React.FC = () => {
                   </div>
                 )}
 
-                <div className="mt-8 flex justify-center">
-                  <button
-                    onClick={() => setShowAbortModal(true)}
-                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-md shadow transition-colors"
-                  >
-                    Abort Process
-                  </button>
+                <div className="mt-8 flex flex-col items-center">
+                  {isAborting ? (
+                    <div className="flex items-center gap-3 bg-red-50 text-red-700 px-6 py-3 rounded-lg border border-red-200 shadow-sm animate-pulse">
+                      <svg
+                        className="animate-spin h-5 w-5 text-red-600"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        ></circle>
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        ></path>
+                      </svg>
+                      <span className="font-semibold text-base">
+                        Aborting process... Cancelling active requests
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowAbortModal(true)}
+                      className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-7 rounded-md shadow-md transition-colors cursor-pointer flex items-center gap-2"
+                    >
+                      <ExclamationIcon className="w-5 h-5" />
+                      <span>Abort Process</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -7217,7 +7620,7 @@ const App: React.FC = () => {
 
       {/* Stop Process Modal */}
       {showStopProcessModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg p-6 max-w-[448px] w-full shadow-xl">
             <h3 className="text-lg font-bold text-red-600 mb-4 flex items-center">
               <ExclamationIcon className="w-6 h-6 mr-2" />
@@ -7225,7 +7628,7 @@ const App: React.FC = () => {
             </h3>
             <p className="text-gray-600 mb-6">
               Are you sure you want to stop the current process? This will
-              cancel the fetching of accounts.
+              immediately cancel all active fetching requests.
             </p>
             <div className="flex justify-end gap-3 flex-col sm:flex-row">
               <button
@@ -7236,8 +7639,8 @@ const App: React.FC = () => {
               </button>
               <button
                 onClick={() => {
-                  abortRef.current = true;
                   setShowStopProcessModal(false);
+                  handleAbort();
                 }}
                 className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-md font-bold"
               >
@@ -7295,33 +7698,31 @@ const App: React.FC = () => {
 
       {/* Abort Modal */}
       {showAbortModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg p-6 max-w-[448px] w-full shadow-xl">
-            <h3 className="text-lg font-bold text-red-600 mb-4 flex items-center">
-              <ExclamationIcon className="w-6 h-6 mr-2" />
-              Abort Process?
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-[480px] w-full shadow-2xl">
+            <h3 className="text-xl font-bold text-red-600 mb-3 flex items-center">
+              <ExclamationIcon className="w-6 h-6 mr-2 text-red-600 flex-shrink-0" />
+              Abort Process Immediately?
             </h3>
-            <p className="text-gray-600 mb-6">
-              Are you sure you want to abort the upload process? This will
-              cancel all remaining leave requests. The currently processing
-              batch will finish, and remaining items will be marked as aborted
-              in the results summary.
+            <p className="text-gray-600 mb-6 text-sm leading-relaxed">
+              Are you sure you want to abort the {updateMethod === "migrate" ? "migration" : "upload"} process?
+              Active network requests will be immediately terminated, and remaining items will be marked as aborted in the results summary.
             </p>
             <div className="flex justify-end gap-3 flex-col sm:flex-row">
               <button
                 onClick={() => setShowAbortModal(false)}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md font-medium"
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md font-medium transition-colors"
               >
-                Continue Upload
+                No, Keep Going
               </button>
               <button
                 onClick={() => {
                   setShowAbortModal(false);
                   handleAbort();
                 }}
-                className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-md font-bold"
+                className="px-5 py-2 text-white bg-red-600 hover:bg-red-700 rounded-md font-bold shadow transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
-                Yes, Abort
+                <span>Yes, Abort Now</span>
               </button>
             </div>
           </div>

@@ -25,8 +25,24 @@ export function initializeService(credentials: PlandayApiCredentials) {
   credentials_internal = { ...credentials };
 }
 
-async function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  return new Promise((resolve, reject) => {
+    let timer: any = null;
+    let onAbort: (() => void) | null = null;
+    if (signal) {
+      onAbort = () => {
+        if (timer) clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort!);
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      signal.addEventListener("abort", onAbort);
+    }
+    timer = setTimeout(() => {
+      if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+  });
 }
 
 // Adds a small random delay (0-500ms) to prevent 'thundering herd' when retrying batches
@@ -34,7 +50,9 @@ function getJitter() {
   return Math.floor(Math.random() * 500);
 }
 
-async function getAccessToken(): Promise<string> {
+async function getAccessToken(signal?: AbortSignal): Promise<string> {
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
   if (accessToken && tokenExpiry && Date.now() < tokenExpiry) {
     return accessToken;
   }
@@ -53,6 +71,7 @@ async function getAccessToken(): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: payload.toString(),
+    signal,
   });
 
   if (!response.ok) {
@@ -84,21 +103,66 @@ async function getAccessToken(): Promise<string> {
   return accessToken;
 }
 
+interface RateLimiterQueueItem {
+  resolve: () => void;
+  reject: (err: any) => void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+}
+
 class RateLimiter {
-  private queue: (() => void)[] = [];
+  private queue: RateLimiterQueueItem[] = [];
   private activeCount = 0;
-  private maxConcurrent = 15; // Smooth out browser concurrency
+  private maxConcurrent = 12; // Smooth out browser concurrency
   private timestamps: number[] = [];
+  private timeoutId: any = null;
   
   // Safe thresholds under Planday limits (20/sec, 750/min portal limits)
-  private MAX_PER_SECOND = 15;
-  private MAX_PER_MINUTE = 700;
+  private MAX_PER_SECOND = 14;
+  private MAX_PER_MINUTE = 650;
 
-  async waitToProceed(): Promise<void> {
-    return new Promise((resolve) => {
-      this.queue.push(resolve);
+  async waitToProceed(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    return new Promise((resolve, reject) => {
+      const item: RateLimiterQueueItem = { resolve, reject, signal };
+
+      if (signal) {
+        const onAbort = () => {
+          signal.removeEventListener("abort", onAbort);
+          const idx = this.queue.indexOf(item);
+          if (idx !== -1) {
+            this.queue.splice(idx, 1);
+          }
+          reject(new DOMException("Aborted", "AbortError"));
+        };
+        item.onAbort = onAbort;
+        signal.addEventListener("abort", onAbort);
+      }
+
+      this.queue.push(item);
       this.processQueue();
     });
+  }
+
+  cancelAll(reason = "Aborted by user") {
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
+    }
+    const oldQueue = this.queue;
+    this.queue = [];
+    for (const item of oldQueue) {
+      if (item.signal && item.onAbort) {
+        item.signal.removeEventListener("abort", item.onAbort);
+      }
+      try {
+        item.reject(new DOMException(reason, "AbortError"));
+      } catch (e) {}
+    }
+    this.activeCount = 0;
   }
 
   private processQueue() {
@@ -106,140 +170,195 @@ class RateLimiter {
     if (this.activeCount >= this.maxConcurrent) return;
 
     const now = Date.now();
-    // Clean up timestamps older than 1 minute
     this.timestamps = this.timestamps.filter((t) => now - t < 60000);
 
     const requestsLastSecond = this.timestamps.filter((t) => now - t < 1000).length;
     const requestsLastMinute = this.timestamps.length;
 
     if (requestsLastSecond >= this.MAX_PER_SECOND || requestsLastMinute >= this.MAX_PER_MINUTE) {
-      // Delay and try again
-      setTimeout(() => this.processQueue(), 200);
+      if (!this.timeoutId) {
+        this.timeoutId = setTimeout(() => {
+          this.timeoutId = null;
+          this.processQueue();
+        }, 150);
+      }
       return;
     }
 
-    const resolve = this.queue.shift();
-    if (resolve) {
+    const item = this.queue.shift();
+    if (item) {
+      if (item.signal && item.onAbort) {
+        item.signal.removeEventListener("abort", item.onAbort);
+      }
+      if (item.signal?.aborted) {
+        item.reject(new DOMException("Aborted", "AbortError"));
+        this.processQueue();
+        return;
+      }
       this.activeCount++;
       this.timestamps.push(now);
-      resolve();
+      item.resolve();
     }
   }
 
   release() {
-    this.activeCount--;
+    this.activeCount = Math.max(0, this.activeCount - 1);
     this.processQueue();
   }
 
-  // Optional dynamic backoff if headers say we are close
   updateFromHeaders(remainingSec: number, remainingMin: number, resetSec: number) {
-     if (remainingSec <= 2 || remainingMin <= 10) {
-       setTimeout(() => this.processQueue(), resetSec * 1000);
-     }
+    if (remainingSec <= 2 || remainingMin <= 10) {
+      setTimeout(() => this.processQueue(), Math.min(resetSec * 1000, 5000));
+    }
   }
 }
 
 const apiRateLimiter = new RateLimiter();
 
-async function fetchWithAuth(
+export function cancelAllPendingRequests() {
+  apiRateLimiter.cancelAll();
+}
+
+export async function fetchWithAuth(
   url: string,
   options: RequestInit = { method: "GET" },
-  retries = 5,
+  retries = 4,
+  signal?: AbortSignal,
 ): Promise<Response> {
   if (!credentials_internal) throw new Error("Service not initialized");
 
-  await apiRateLimiter.waitToProceed();
+  const effectiveSignal = signal || (options.signal as AbortSignal | undefined);
+  if (effectiveSignal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+
+  await apiRateLimiter.waitToProceed(effectiveSignal);
+
+  let timedOut = false;
+  let timeoutId: any = null;
+  const timeoutController = new AbortController();
+  timeoutId = setTimeout(() => {
+    timedOut = true;
+    timeoutController.abort();
+  }, 30000);
+
+  let onAbortListener: (() => void) | null = null;
+  if (effectiveSignal) {
+    onAbortListener = () => {
+      timeoutController.abort(new DOMException("Aborted", "AbortError"));
+    };
+    effectiveSignal.addEventListener("abort", onAbortListener, { once: true });
+  }
 
   try {
-    const token = await getAccessToken();
+    const token = await getAccessToken(effectiveSignal);
+    if (effectiveSignal?.aborted) throw new DOMException("Aborted", "AbortError");
+
     const headers = {
       ...options.headers,
       Authorization: `Bearer ${token}`,
       "X-ClientId": credentials_internal.clientId,
     };
 
-    const response = await fetch(url, { ...options, headers });
-    
-    // Check remaining limits dynamically
+    const response = await fetch(url, {
+      ...options,
+      headers,
+      signal: timeoutController.signal,
+    });
+
+    if (timeoutId) clearTimeout(timeoutId);
+    if (effectiveSignal && onAbortListener) {
+      effectiveSignal.removeEventListener("abort", onAbortListener);
+    }
+
     const remainingLimit = response.headers.get("x-ratelimit-remaining");
     const limitReset = response.headers.get("x-ratelimit-reset");
     if (remainingLimit && limitReset) {
-      // Simplistic check, just passing back to limiter
       const rem = parseInt(remainingLimit, 10);
       const res = parseInt(limitReset, 10);
       if (rem < 5) {
-         apiRateLimiter.updateFromHeaders(rem, rem, res);
+        apiRateLimiter.updateFromHeaders(rem, rem, res);
       }
     }
 
     // Handle Rate Limiting (429)
     if (response.status === 429) {
+      if (effectiveSignal?.aborted) throw new DOMException("Aborted", "AbortError");
       if (retries > 0) {
         const retryAfterHeader = response.headers.get("Retry-After");
         const xRateLimitReset = response.headers.get("x-ratelimit-reset");
 
         let waitTime = 2000; // Default 2s
-
         if (retryAfterHeader) {
           waitTime = parseInt(retryAfterHeader, 10) * 1000;
         } else if (xRateLimitReset) {
           waitTime = (parseInt(xRateLimitReset, 10) + 1) * 1000;
         }
-
         waitTime += getJitter();
 
-        console.warn(`Rate limited (429). Retrying in ${waitTime}ms...`);
         apiRateLimiter.release();
-        await wait(waitTime);
-        return fetchWithAuth(url, options, retries - 1);
+        await wait(waitTime, effectiveSignal);
+        return fetchWithAuth(url, options, retries - 1, effectiveSignal);
       }
     }
 
     // Handle Server Errors (5xx)
     if (response.status >= 500 && retries > 0) {
-      console.warn(`Server error ${response.status}. Retrying...`);
+      if (effectiveSignal?.aborted) throw new DOMException("Aborted", "AbortError");
       apiRateLimiter.release();
-      await wait(2000 + getJitter());
-      return fetchWithAuth(url, options, retries - 1);
+      await wait(1500 + getJitter(), effectiveSignal);
+      return fetchWithAuth(url, options, retries - 1, effectiveSignal);
     }
 
     apiRateLimiter.release();
     return response;
   } catch (error: any) {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (effectiveSignal && onAbortListener) {
+      effectiveSignal.removeEventListener("abort", onAbortListener);
+    }
     apiRateLimiter.release();
-    // Handle Network Errors (Fetch failed to leave browser)
-    // Checks for "TypeError: Failed to fetch" (Chrome) or "NetworkError" (Firefox)
+
+    if (effectiveSignal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    if (timedOut) {
+      if (retries > 0 && !effectiveSignal?.aborted) {
+        console.warn(`Request timed out after 30s. Retries remaining: ${retries - 1}`);
+        const attempt = 5 - retries;
+        const backoff = 1500 * attempt;
+        await wait(backoff + getJitter(), effectiveSignal);
+        return fetchWithAuth(url, options, retries - 1, effectiveSignal);
+      }
+      throw new Error("Request timed out after 30s (Planday server did not respond)");
+    }
+
     const isNetworkError =
       error instanceof TypeError ||
       error.name === "TypeError" ||
       error.name === "NetworkError" ||
       error.message?.includes("NetworkError");
 
-    if (isNetworkError && retries > 0) {
-      console.warn(
-        `Network error detected: ${error.message}. Retries remaining: ${retries - 1}`,
-      );
-
-      // Progressive backoff: 2s, 4s, 6s...
-      // e.g. If retries=5 (first attempt), we wait 2000 * 1 = 2000ms
-      const attempt = 6 - retries;
-      const backoff = 2000 * attempt;
-
-      await wait(backoff + getJitter());
-      return fetchWithAuth(url, options, retries - 1);
+    if (isNetworkError && retries > 0 && !effectiveSignal?.aborted) {
+      const attempt = 5 - retries;
+      const backoff = 1500 * attempt;
+      await wait(backoff + getJitter(), effectiveSignal);
+      return fetchWithAuth(url, options, retries - 1, effectiveSignal);
     }
     throw error;
   }
 }
 
-async function fetchPaginatedData(endpoint: string): Promise<any[]> {
+async function fetchPaginatedData(endpoint: string, signal?: AbortSignal): Promise<any[]> {
   let allData: any[] = [];
   let offset = 0;
-  const limit = 50; // Keep limit reasonable to avoid massive response bodies
+  const limit = 50;
 
   while (true) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const url = `${API_BASE_URL}${endpoint}${endpoint.includes("?") ? "&" : "?"}limit=${limit}&offset=${offset}`;
-    const response = await fetchWithAuth(url);
+    const response = await fetchWithAuth(url, { signal }, 4, signal);
     if (!response.ok)
       throw new Error(`Failed to fetch ${endpoint}: ${await response.text()}`);
     const result = await response.json();
@@ -260,8 +379,8 @@ async function fetchPaginatedData(endpoint: string): Promise<any[]> {
   return allData;
 }
 
-export async function fetchPortalInfo(): Promise<{ name: string }> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/portal/v1.0/info`);
+export async function fetchPortalInfo(signal?: AbortSignal): Promise<{ name: string }> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/portal/v1.0/info`, { signal }, 3, signal);
   if (!response.ok) {
     console.warn(`Failed to fetch portal info: ${response.status}`);
     return { name: "Unknown" };
@@ -270,14 +389,14 @@ export async function fetchPortalInfo(): Promise<{ name: string }> {
   return { name: result.data?.name || "Unknown" };
 }
 
-export async function fetchEmployees(): Promise<Employee[]> {
-  return fetchPaginatedData("/hr/v1.0/employees");
+export async function fetchEmployees(signal?: AbortSignal): Promise<Employee[]> {
+  return fetchPaginatedData("/hr/v1.0/employees", signal);
 }
 
-export async function fetchDepartments(): Promise<
+export async function fetchDepartments(signal?: AbortSignal): Promise<
   { id: number; name: string }[]
 > {
-  const response = await fetchWithAuth(`${API_BASE_URL}/hr/v1.0/departments`);
+  const response = await fetchWithAuth(`${API_BASE_URL}/hr/v1.0/departments`, { signal }, 3, signal);
   if (response.status === 403) {
     throw new Error(
       "Missing HR Departments Scope (hr.departments.read). Please add this scope to your Planday App credentials.",
@@ -291,11 +410,14 @@ export async function fetchDepartments(): Promise<
   return result.data || [];
 }
 
-export async function fetchEmployeeGroups(): Promise<
+export async function fetchEmployeeGroups(signal?: AbortSignal): Promise<
   { id: number; name: string }[]
 > {
   const response = await fetchWithAuth(
     `${API_BASE_URL}/hr/v1.0/employeegroups`,
+    { signal },
+    3,
+    signal,
   );
   if (response.status === 403) {
     throw new Error(
@@ -310,10 +432,10 @@ export async function fetchEmployeeGroups(): Promise<
   return result.data || [];
 }
 
-export async function fetchEmployeeTypes(): Promise<
+export async function fetchEmployeeTypes(signal?: AbortSignal): Promise<
   { id: number; name: string }[]
 > {
-  const response = await fetchWithAuth(`${API_BASE_URL}/hr/v1.0/employeetypes`);
+  const response = await fetchWithAuth(`${API_BASE_URL}/hr/v1.0/employeetypes`, { signal }, 3, signal);
   if (response.status === 403) {
     throw new Error(
       "Missing HR Employee Types Scope (hr.employeetypes.read). Please add this scope to your Planday App credentials.",
@@ -327,9 +449,12 @@ export async function fetchEmployeeTypes(): Promise<
   return result.data || [];
 }
 
-export async function fetchSampleAccounts(limit: number = 50): Promise<any[]> {
+export async function fetchSampleAccounts(limit: number = 50, signal?: AbortSignal): Promise<any[]> {
   const response = await fetchWithAuth(
     `${API_BASE_URL}/absence/v1.0/accounts?limit=${limit}`,
+    { signal },
+    3,
+    signal,
   );
   if (!response.ok) {
     console.warn(`Failed to fetch sample accounts: ${response.status}`);
@@ -338,6 +463,7 @@ export async function fetchSampleAccounts(limit: number = 50): Promise<any[]> {
   const result = await response.json();
   return result.data || [];
 }
+
 export async function fetchAllValidityPeriods(
   activeTypeIds: number[],
   signal?: AbortSignal
@@ -356,7 +482,7 @@ export async function fetchAllValidityPeriods(
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     
     const url = `${API_BASE_URL}/absence/v1.0/accounts?limit=${limit}&offset=${offset}`;
-    const response = await fetchWithAuth(url, { signal });
+    const response = await fetchWithAuth(url, { signal }, 3, signal);
     if (!response.ok) break;
     const result = await response.json();
 
@@ -392,7 +518,6 @@ export async function fetchAllValidityPeriods(
     } else {
       const periods = Array.from(periodsSet).map(p => JSON.parse(p) as { start: string; end: string });
       
-      // Look for a period where today falls within [start, end]
       const activePeriods = periods.filter(p => {
         const start = p.start.split("T")[0];
         const end = p.end.split("T")[0];
@@ -400,14 +525,12 @@ export async function fetchAllValidityPeriods(
       });
 
       if (activePeriods.length > 0) {
-        // If there are multiple, pick the one that ends latest, then starts latest
         activePeriods.sort((a, b) => {
           if (a.end !== b.end) return a.end > b.end ? -1 : 1;
           return a.start > b.start ? -1 : 1;
         });
         finalMap[id] = activePeriods[0];
       } else {
-        // No active period for today, pick the most recent one (latest end date)
         periods.sort((a, b) => {
           if (a.end !== b.end) return a.end > b.end ? -1 : 1;
           return a.start > b.start ? -1 : 1;
@@ -419,9 +542,13 @@ export async function fetchAllValidityPeriods(
 
   return finalMap;
 }
-export async function fetchAccountTypes(): Promise<AccountType[]> {
+
+export async function fetchAccountTypes(signal?: AbortSignal): Promise<AccountType[]> {
   const response = await fetchWithAuth(
     `${API_BASE_URL}/absence/v1.0/accounttypes`,
+    { signal },
+    3,
+    signal,
   );
   if (!response.ok)
     throw new Error(`Failed to fetch account types: ${await response.text()}`);
@@ -433,6 +560,7 @@ export async function fetchLeaveAccounts(
   employeeId: number,
   dateRange?: { start: string; end: string },
   status?: string,
+  signal?: AbortSignal,
 ): Promise<LeaveAccount[]> {
   let endpoint = `/absence/v1.0/accounts?employeeId=${employeeId}`;
   if (dateRange?.start) {
@@ -444,15 +572,19 @@ export async function fetchLeaveAccounts(
   if (status) {
     endpoint += `&status=${status}`;
   }
-  return fetchPaginatedData(endpoint);
+  return fetchPaginatedData(endpoint, signal);
 }
 
 export async function fetchAccountBalance(
   accountId: number,
   date: string,
+  signal?: AbortSignal,
 ): Promise<LeaveAccountBalance> {
   const result = await fetchWithAuth(
     `${API_BASE_URL}/absence/v1.0/accounts/${accountId}/balance?balanceDate=${date}`,
+    { signal },
+    3,
+    signal,
   );
 
   if (result.status === 404) {
@@ -486,6 +618,7 @@ export async function fetchAccountBalance(
 
 export async function postAbsenceRequest(
   payload: AbsenceRequestPayload,
+  signal?: AbortSignal,
 ): Promise<any> {
   const result = await fetchWithAuth(
     `${API_BASE_URL}/absence/v1.0/absencerequests`,
@@ -493,7 +626,10 @@ export async function postAbsenceRequest(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal,
     },
+    3,
+    signal,
   );
   if (!result.ok) {
     const errorText = await result.text();
@@ -504,7 +640,7 @@ export async function postAbsenceRequest(
     : await result.json().catch(() => ({ success: true }));
 }
 
-export async function approveAbsenceRequest(id: number): Promise<any> {
+export async function approveAbsenceRequest(id: number, signal?: AbortSignal): Promise<any> {
   const result = await fetchWithAuth(
     `${API_BASE_URL}/absence/v1.0/absencerequests/${id}/approve`,
     {
@@ -516,7 +652,10 @@ export async function approveAbsenceRequest(id: number): Promise<any> {
         existingShifts: { action: "NoAction", change: { shiftTypeId: null } },
         coverShifts: { action: "DoNotCreate" },
       }),
+      signal,
     },
+    3,
+    signal,
   );
   if (!result.ok)
     throw new Error(`Failed to approve request: ${await result.text()}`);
@@ -525,7 +664,7 @@ export async function approveAbsenceRequest(id: number): Promise<any> {
     : await result.json().catch(() => ({ success: true }));
 }
 
-export async function declineAbsenceRecord(id: number): Promise<any> {
+export async function declineAbsenceRecord(id: number, signal?: AbortSignal): Promise<any> {
   const result = await fetchWithAuth(
     `${API_BASE_URL}/absence/v1.0/absencerecords/${id}/decline`,
     {
@@ -535,7 +674,10 @@ export async function declineAbsenceRecord(id: number): Promise<any> {
         reason: "Bulk declined via API",
         notify: false,
       }),
-    }
+      signal,
+    },
+    3,
+    signal,
   );
   if (!result.ok)
     throw new Error(`Failed to decline record: ${await result.text()}`);
@@ -544,7 +686,7 @@ export async function declineAbsenceRecord(id: number): Promise<any> {
     : await result.json().catch(() => ({ success: true }));
 }
 
-export async function denyAbsenceRequest(id: number): Promise<any> {
+export async function denyAbsenceRequest(id: number, signal?: AbortSignal): Promise<any> {
   const result = await fetchWithAuth(
     `${API_BASE_URL}/absence/v1.0/absencerequests/${id}/deny`,
     {
@@ -554,7 +696,10 @@ export async function denyAbsenceRequest(id: number): Promise<any> {
         reason: "Bulk denied via API",
         notify: false,
       }),
+      signal,
     },
+    3,
+    signal,
   );
   if (!result.ok) {
     throw new Error(`Failed to deny request: ${await result.text()}`);
@@ -564,33 +709,32 @@ export async function denyAbsenceRequest(id: number): Promise<any> {
     : await result.json().catch(() => ({ success: true }));
 }
 
-export async function getAbsenceRecords(employeeId?: number): Promise<any[]> {
+export async function getAbsenceRecords(employeeId?: number, signal?: AbortSignal): Promise<any[]> {
   let endpoint = `/absence/v1.0/absencerecords`;
-  // Provide a wide date range if Planday requires it
   const params = new URLSearchParams();
   params.append("startDate", "2020-01-01");
   params.append("endDate", "2030-01-01");
   if (employeeId) {
     params.append("employeeId", String(employeeId));
   }
-  return fetchPaginatedData(`${endpoint}?${params.toString()}`);
+  return fetchPaginatedData(`${endpoint}?${params.toString()}`, signal);
 }
 
-export async function getAbsenceRequestById(id: number): Promise<any> {
-  const result = await fetchWithAuth(`${API_BASE_URL}/absence/v1.0/absencerequests/${id}`);
+export async function getAbsenceRequestById(id: number, signal?: AbortSignal): Promise<any> {
+  const result = await fetchWithAuth(`${API_BASE_URL}/absence/v1.0/absencerequests/${id}`, { signal }, 3, signal);
   if (!result.ok) throw new Error(`Failed to fetch request ${id}: ${await result.text()}`);
   const data = await result.json();
   return data.data || data;
 }
 
-export async function getAbsenceRecordById(id: number): Promise<any> {
-  const result = await fetchWithAuth(`${API_BASE_URL}/absence/v1.0/absencerecords/${id}`);
+export async function getAbsenceRecordById(id: number, signal?: AbortSignal): Promise<any> {
+  const result = await fetchWithAuth(`${API_BASE_URL}/absence/v1.0/absencerecords/${id}`, { signal }, 3, signal);
   if (!result.ok) throw new Error(`Failed to fetch record ${id}: ${await result.text()}`);
   const data = await result.json();
   return data.data || data;
 }
 
-export async function getAbsenceRequests(employeeId?: number): Promise<any[]> {
+export async function getAbsenceRequests(employeeId?: number, signal?: AbortSignal): Promise<any[]> {
   let endpoint = `/absence/v1.0/absencerequests`;
   const params = new URLSearchParams();
   params.append("startDate", "2020-01-01");
@@ -598,5 +742,5 @@ export async function getAbsenceRequests(employeeId?: number): Promise<any[]> {
   if (employeeId) {
     params.append("employeeId", String(employeeId));
   }
-  return fetchPaginatedData(`${endpoint}?${params.toString()}`);
+  return fetchPaginatedData(`${endpoint}?${params.toString()}`, signal);
 }
