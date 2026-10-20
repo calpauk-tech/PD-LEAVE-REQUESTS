@@ -249,6 +249,9 @@ import { PreflightValidationScreen } from "./mapping/PreflightValidationScreen";
 import { parseSpreadsheetFile } from "./mapping/fileParser";
 import { buildNormalizedReviewRecords } from "./mapping/normalization";
 import type { IdentityConfig, ParsedFileResult } from "./mapping/types";
+import { useHeavyTaskBanner } from "./useHeavyTaskBanner";
+import { ProcessingBanner } from "./ProcessingBanner";
+import { FileUploadLoadingIndicator } from "./FileUploadLoadingIndicator";
 
 // --- Custom Hooks ---
 function useUndoableState<T>(initialValue: T, maxHistory: number = 5) {
@@ -1276,6 +1279,21 @@ const App: React.FC = () => {
     submitting: false,
   });
   const [loadingText, setLoadingText] = useState("");
+  const [showLoadingBar, setShowLoadingBar] = useState<boolean>(false);
+  const {
+    isProcessing,
+    bannerMessage,
+    bannerSubText,
+    progress: bannerProgress,
+    runWithBanner,
+    updateBanner,
+    setIsProcessing,
+    setBannerMessage,
+  } = useHeavyTaskBanner();
+  const [uploadingFileInfo, setUploadingFileInfo] = useState<{
+    name: string;
+    size: number;
+  } | null>(null);
   const [progress, setProgress] = useState(0);
   const [processingPhase, setProcessingPhase] = useState<number>(0);
   const [processingLogs, setProcessingLogs] = useState<{message: string, type: "info" | "success" | "error"}[]>([]);
@@ -1507,6 +1525,8 @@ const App: React.FC = () => {
 
   const loadConfigData = async () => {
     setIsLoading((prev) => ({ ...prev, types: true }));
+    setShowLoadingBar(true);
+    setLoadingText("Connecting to Planday and loading portal configuration...");
     try {
       const types = await fetchAccountTypes();
       setAccountTypes(types); // Important to set this to exit the loading loop dependencies
@@ -1550,9 +1570,10 @@ const App: React.FC = () => {
       setAllEmployees(employees);
     } catch (err: any) {
       console.error("Failed to fetch employees for review filtering", err);
+    } finally {
+      setIsLoading((prev) => ({ ...prev, types: false }));
+      setShowLoadingBar(false);
     }
-
-    setIsLoading((prev) => ({ ...prev, types: false }));
   };
 
   useEffect(() => {
@@ -1714,6 +1735,7 @@ const App: React.FC = () => {
     }
 
     setIsLoading((prev) => ({ ...prev, template: true }));
+    setShowLoadingBar(true);
     setProgress(0);
     setError(null);
     clearAdjustmentsHistory([]);
@@ -2027,6 +2049,7 @@ const App: React.FC = () => {
       console.error(err);
     } finally {
       setIsLoading((prev) => ({ ...prev, template: false }));
+      setShowLoadingBar(false);
       setIsAborting(false);
       setHasAttemptedSubmit(false);
     }
@@ -2036,47 +2059,67 @@ const App: React.FC = () => {
     setUploadConflicts(null);
     setUploadValidityErrors(null);
     setLastUploadedFile(file);
+    setUploadingFileInfo({ name: file.name, size: file.size });
 
     // Multi-stage Guided Entity & Column Mapping flow
     if (updateMethod === "excel" && useGuidedMapping) {
-      try {
-        setIsLoading((prev) => ({ ...prev, template: true }));
-        setLoadingText("Reading spreadsheet & preparing mapping flow...");
+      setIsLoading((prev) => ({ ...prev, template: true }));
+      setShowLoadingBar(true);
+      setLoadingText(`Reading spreadsheet "${file.name}"...`);
 
-        const parsed = await parseSpreadsheetFile(file);
-        if (parsed.rows.length === 0) {
-          setError("The uploaded file appears to be empty or contains no data rows.");
-          setIsLoading((prev) => ({ ...prev, template: false }));
-          window.scrollTo({ top: 0, behavior: "smooth" });
-          return;
+      await runWithBanner(
+        `Reading ${file.name} & preparing data...`,
+        async () => {
+          try {
+            const parsed = await parseSpreadsheetFile(file);
+            if (parsed.rows.length === 0) {
+              setError("The uploaded file appears to be empty or contains no data rows.");
+              setIsLoading((prev) => ({ ...prev, template: false }));
+              setShowLoadingBar(false);
+              setUploadingFileInfo(null);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              return;
+            }
+
+            setUploadedFileData(parsed);
+            if (parsed.duplicateHeadersNotification && parsed.duplicateHeadersNotification.length > 0) {
+              setDuplicateHeaderNotification(parsed.duplicateHeadersNotification);
+            } else {
+              setDuplicateHeaderNotification(null);
+            }
+
+            // Reset mapping states
+            setIdentityConfig(null);
+            setEmployeeMapping(new Map());
+            setFieldMapping(new Map());
+
+            setIsLoading((prev) => ({ ...prev, template: false }));
+            setShowLoadingBar(false);
+            setUploadingFileInfo(null);
+            setCurrentStep("identity_method");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          } catch (err: any) {
+            console.error("Failed to parse file for guided mapping", err);
+            setIsLoading((prev) => ({ ...prev, template: false }));
+            setShowLoadingBar(false);
+            setUploadingFileInfo(null);
+            setError(`Failed to read file: ${err.message || "Unknown error"}`);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
         }
-
-        setUploadedFileData(parsed);
-        if (parsed.duplicateHeadersNotification && parsed.duplicateHeadersNotification.length > 0) {
-          setDuplicateHeaderNotification(parsed.duplicateHeadersNotification);
-        } else {
-          setDuplicateHeaderNotification(null);
-        }
-
-        // Reset mapping states
-        setIdentityConfig(null);
-        setEmployeeMapping(new Map());
-        setFieldMapping(new Map());
-
-        setIsLoading((prev) => ({ ...prev, template: false }));
-        setCurrentStep("identity_method");
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      } catch (err: any) {
-        console.error("Failed to parse file for guided mapping", err);
-        setIsLoading((prev) => ({ ...prev, template: false }));
-        setError(`Failed to read file: ${err.message || "Unknown error"}`);
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }
+      );
       return;
     }
 
     const reader = new FileReader();
+    setIsLoading((prev) => ({ ...prev, template: true }));
+    setShowLoadingBar(true);
+    setLoadingText(`Reading ${file.name}...`);
+
     reader.onload = async (event) => {
+      await runWithBanner(
+        `Processing ${file.name} & resolving accounts...`,
+        async () => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: "array", cellDates: true });
@@ -2451,9 +2494,15 @@ const App: React.FC = () => {
             "Failed to parse the uploaded file. Please check the date formats and try again.",
           ),
         );
+      } finally {
+        setIsLoading((prev) => ({ ...prev, template: false }));
+        setShowLoadingBar(false);
+        setUploadingFileInfo(null);
       }
-    };
-    reader.readAsArrayBuffer(file);
+    }
+  );
+};
+reader.readAsArrayBuffer(file);
   };
 
   const handleSwitchDateFormat = () => {
@@ -2464,78 +2513,101 @@ const App: React.FC = () => {
     processUploadedFile(lastUploadedFile, newFormat);
   };
 
-  const handleIdentityConfigConfirm = (config: IdentityConfig) => {
+  const handleIdentityConfigConfirm = async (config: IdentityConfig) => {
     setIdentityConfig(config);
-    setCurrentStep("map_employees");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setIsLoading((prev) => ({ ...prev, template: true }));
+    setShowLoadingBar(true);
+    setLoadingText("Matching employees by ID and name...");
+    await runWithBanner("Matching employees & calculating similarity...", async () => {
+      setCurrentStep("map_employees");
+      setIsLoading((prev) => ({ ...prev, template: false }));
+      setShowLoadingBar(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
   };
 
-  const handleEmployeeMappingConfirm = (empMap: Map<number, number | null>) => {
+  const handleEmployeeMappingConfirm = async (empMap: Map<number, number | null>) => {
     setEmployeeMapping(empMap);
-    setCurrentStep("map_fields");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setIsLoading((prev) => ({ ...prev, template: true }));
+    setShowLoadingBar(true);
+    setLoadingText("Saving employee mappings & analyzing columns...");
+    await runWithBanner("Preparing column mapping & detecting field names...", async () => {
+      setCurrentStep("map_fields");
+      setIsLoading((prev) => ({ ...prev, template: false }));
+      setShowLoadingBar(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
   };
 
   const handleFieldMappingConfirm = async (fMap: Map<string, string>) => {
     if (!uploadedFileData || !identityConfig) return;
     setFieldMapping(fMap);
     setIsLoading((prev) => ({ ...prev, template: true }));
+    setShowLoadingBar(true);
     setLoadingText("Resolving leave accounts & normalizing records...");
 
-    try {
-      // 1. Fetch leave accounts for all mapped employees
-      const uniqueEmpIds = Array.from(new Set(Array.from(employeeMapping.values()).filter(Boolean))) as number[];
-      const cache = employeeAccountsCacheRef.current;
+    await runWithBanner(
+      "Resolving leave accounts & normalizing records...",
+      async () => {
+        try {
+          // 1. Fetch leave accounts for all mapped employees
+          const uniqueEmpIds = Array.from(new Set(Array.from(employeeMapping.values()).filter(Boolean))) as number[];
+          const cache = employeeAccountsCacheRef.current;
 
-      for (const empId of uniqueEmpIds) {
-        if (!cache.has(empId)) {
-          try {
-            const accs = await fetchLeaveAccounts(empId, undefined, undefined);
-            cache.set(empId, accs);
-          } catch (err) {
-            console.error("Failed to fetch leave accounts for", empId, err);
-            cache.set(empId, []);
+          for (const empId of uniqueEmpIds) {
+            if (!cache.has(empId)) {
+              try {
+                const accs = await fetchLeaveAccounts(empId, undefined, undefined);
+                cache.set(empId, accs);
+              } catch (err) {
+                console.error("Failed to fetch leave accounts for", empId, err);
+                cache.set(empId, []);
+              }
+            }
           }
+
+          // 2. Build normalized reviews
+          const reviews = buildNormalizedReviewRecords(
+            uploadedFileData.rows,
+            employeeMapping,
+            fMap,
+            allEmployees,
+            accountTypes,
+            cache,
+            downloadDateFormat,
+            identityConfig
+          );
+
+          if (reviews.length === 0) {
+            setError("No valid records were created with the current mappings.");
+            setIsLoading((prev) => ({ ...prev, template: false }));
+            setShowLoadingBar(false);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            return;
+          }
+
+          const hasValidationErrors = reviews.some((r) => r.isValidationError || r.error);
+
+          clearAdjustmentsHistory(reviews);
+          resetReviewSessionState(reviews);
+
+          setIsLoading((prev) => ({ ...prev, template: false }));
+          setShowLoadingBar(false);
+          if (hasValidationErrors) {
+            setCurrentStep("validation_errors");
+          } else {
+            setCurrentStep("review");
+          }
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        } catch (err: any) {
+          console.error("Normalization error:", err);
+          setIsLoading((prev) => ({ ...prev, template: false }));
+          setShowLoadingBar(false);
+          setError(err.message || "Failed to normalize data.");
+          window.scrollTo({ top: 0, behavior: "smooth" });
         }
       }
-
-      // 2. Build normalized reviews
-      const reviews = buildNormalizedReviewRecords(
-        uploadedFileData.rows,
-        employeeMapping,
-        fMap,
-        allEmployees,
-        accountTypes,
-        cache,
-        downloadDateFormat,
-        identityConfig
-      );
-
-      if (reviews.length === 0) {
-        setError("No valid records were created with the current mappings.");
-        setIsLoading((prev) => ({ ...prev, template: false }));
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        return;
-      }
-
-      const hasValidationErrors = reviews.some((r) => r.isValidationError || r.error);
-
-      clearAdjustmentsHistory(reviews);
-      resetReviewSessionState(reviews);
-
-      setIsLoading((prev) => ({ ...prev, template: false }));
-      if (hasValidationErrors) {
-        setCurrentStep("validation_errors");
-      } else {
-        setCurrentStep("review");
-      }
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err: any) {
-      console.error("Normalization error:", err);
-      setIsLoading((prev) => ({ ...prev, template: false }));
-      setError(err.message || "Failed to normalize data.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    );
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3369,72 +3441,74 @@ const App: React.FC = () => {
     executeApplyBulkEdit();
   };
 
-  const executeApplyBulkEdit = () => {
-    setAdjustmentsToReview((prev) =>
-      prev.map((item) => {
-        if (selectedReviewIds.has(item.id)) {
-          if (bulkEditField === "adjustment") {
-            const num = parseFloat(bulkEditValueAdjustment);
-            if (!isNaN(num)) {
-              let updatedNewBalance = item.newBalance;
-              if (
-                typeof item.availableBalance === "number" &&
-                !isNaN(item.availableBalance)
-              ) {
-                updatedNewBalance = Number(
-                  (item.availableBalance + num).toFixed(2),
-                );
+  const executeApplyBulkEdit = async () => {
+    await runWithBanner(`Applying bulk updates to ${selectedReviewIds.size} rows...`, () => {
+      setAdjustmentsToReview((prev) =>
+        prev.map((item) => {
+          if (selectedReviewIds.has(item.id)) {
+            if (bulkEditField === "adjustment") {
+              const num = parseFloat(bulkEditValueAdjustment);
+              if (!isNaN(num)) {
+                let updatedNewBalance = item.newBalance;
+                if (
+                  typeof item.availableBalance === "number" &&
+                  !isNaN(item.availableBalance)
+                ) {
+                  updatedNewBalance = Number(
+                    (item.availableBalance + num).toFixed(2),
+                  );
+                }
+                return {
+                  ...item,
+                  adjustment: num,
+                  newBalance: updatedNewBalance,
+                };
               }
-              return {
-                ...item,
-                adjustment: num,
-                newBalance: updatedNewBalance,
-              };
-            }
-          } else if (bulkEditField === "newBalance") {
-            const num = parseFloat(bulkEditValueNewBalance);
-            if (!isNaN(num)) {
-              let derivedAdjustment = item.adjustment;
-              if (
-                typeof item.availableBalance === "number" &&
-                !isNaN(item.availableBalance)
-              ) {
-                derivedAdjustment = Number(
-                  (num - item.availableBalance).toFixed(2),
-                );
+            } else if (bulkEditField === "newBalance") {
+              const num = parseFloat(bulkEditValueNewBalance);
+              if (!isNaN(num)) {
+                let derivedAdjustment = item.adjustment;
+                if (
+                  typeof item.availableBalance === "number" &&
+                  !isNaN(item.availableBalance)
+                ) {
+                  derivedAdjustment = Number(
+                    (num - item.availableBalance).toFixed(2),
+                  );
+                }
+                return {
+                  ...item,
+                  adjustment: derivedAdjustment,
+                  newBalance: num,
+                };
               }
-              return {
-                ...item,
-                adjustment: derivedAdjustment,
-                newBalance: num,
-              };
-            }
-          } else if (bulkEditField === "effectiveDate") {
-            let newDate = bulkEditValueEffectiveDate;
-            if (bulkEditEffectiveDateType === "today")
-              newDate = getTodayYYYYMMDD();
-            if (bulkEditEffectiveDateType === "start_date") {
-              if (
-                item.accountTypeCategory === "FLEX/TOIL" &&
-                (!item.validFrom || item.validFrom === "N/A")
-              ) {
-                return item; // Skip modifying this item
+            } else if (bulkEditField === "effectiveDate") {
+              let newDate = bulkEditValueEffectiveDate;
+              if (bulkEditEffectiveDateType === "today")
+                newDate = getTodayYYYYMMDD();
+              if (bulkEditEffectiveDateType === "start_date") {
+                if (
+                  item.accountTypeCategory === "FLEX/TOIL" &&
+                  (!item.validFrom || item.validFrom === "N/A")
+                ) {
+                  return item; // Skip modifying this item
+                }
+                newDate =
+                  item.validFrom && item.validFrom !== "N/A"
+                    ? item.validFrom
+                    : getTodayYYYYMMDD();
               }
-              newDate =
-                item.validFrom && item.validFrom !== "N/A"
-                  ? item.validFrom
-                  : getTodayYYYYMMDD();
+              if (newDate) {
+                return { ...item, effectiveDate: newDate };
+              }
+            } else if (bulkEditField === "comment") {
+              return { ...item, comment: bulkEditValueComment };
             }
-            if (newDate) {
-              return { ...item, effectiveDate: newDate };
-            }
-          } else if (bulkEditField === "comment") {
-            return { ...item, comment: bulkEditValueComment };
           }
-        }
-        return item;
-      }),
-    );
+          return item;
+        }),
+      );
+    });
   };
 
   const handleSelectFiltered = () => {
@@ -4602,6 +4676,32 @@ const App: React.FC = () => {
         )}
 
         <main>
+          {/* Blue Informational Loading Banner (Fixed bottom notification + top progress bar) */}
+          {(isProcessing || (showLoadingBar && (isLoading.template || isLoading.types))) &&
+            [
+              "configure",
+              "upload",
+              "identity_method",
+              "map_employees",
+              "map_fields",
+              "validation_errors",
+              "review",
+              "migrateOptions",
+            ].includes(currentStep) && (
+              <ProcessingBanner
+                isVisible={true}
+                message={bannerMessage || loadingText || "Processing..."}
+                subText={bannerSubText}
+                progress={
+                  bannerProgress !== undefined
+                    ? bannerProgress
+                    : progress > 0
+                    ? progress
+                    : undefined
+                }
+              />
+            )}
+
           {error && (
             <div
               className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-6 max-w-[896px] mx-auto"
@@ -5642,31 +5742,39 @@ const App: React.FC = () => {
               </div>
 
               <h3 className="text-lg font-bold mb-4 text-gray-800">Upload Export File</h3>
-              <div
-                className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors cursor-pointer relative ${
-                  isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-gray-400"
-                }`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={() => document.getElementById("migrate-file-upload")?.click()}
-              >
-                <input
-                  id="migrate-file-upload"
-                  type="file"
-                  accept=".xlsx, .xls"
-                  className="hidden"
-                  onChange={handleFileInputChange}
-                  onClick={(e) => {
-                    (e.target as HTMLInputElement).value = "";
-                  }}
+              {isLoading.template || isProcessing ? (
+                <FileUploadLoadingIndicator
+                  fileName={uploadingFileInfo?.name || "export_file.xlsx"}
+                  fileSize={uploadingFileInfo?.size}
+                  statusText={loadingText || bannerMessage || "Reading & processing migration export file..."}
                 />
-                <UploadCloudIcon className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                <p className="text-gray-600 mb-2 font-medium">
-                  Click to browse or drag and drop your file here
-                </p>
-                <p className="text-gray-400 text-sm">XLSX or XLS only</p>
-              </div>
+              ) : (
+                <div
+                  className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors cursor-pointer relative ${
+                    isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-gray-400"
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => document.getElementById("migrate-file-upload")?.click()}
+                >
+                  <input
+                    id="migrate-file-upload"
+                    type="file"
+                    accept=".xlsx, .xls"
+                    className="hidden"
+                    onChange={handleFileInputChange}
+                    onClick={(e) => {
+                      (e.target as HTMLInputElement).value = "";
+                    }}
+                  />
+                  <UploadCloudIcon className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                  <p className="text-gray-600 mb-2 font-medium">
+                    Click to browse or drag and drop your file here
+                  </p>
+                  <p className="text-gray-400 text-sm">XLSX or XLS only</p>
+                </div>
+              )}
 
               <div className="flex justify-start mt-8">
                 <button
@@ -5948,33 +6056,41 @@ const App: React.FC = () => {
                 className="hidden"
               />
 
-              {!uploadConflicts && !uploadValidityErrors && (
-                <div
-                  className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors ${isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-gray-400"}`}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  onClick={() =>
-                    document.getElementById("file-upload-input")?.click()
-                  }
-                >
-                  <div className="flex flex-col items-center justify-center">
-                    <UploadCloudIcon
-                      className={`w-12 h-12 mb-4 ${isDragging ? "text-blue-500" : "text-gray-400"}`}
-                    />
-                    <p className="text-gray-700 font-semibold text-base mb-1">
-                      Drop file or click to browse
-                    </p>
-                    <p className="text-gray-500 text-xs mt-1">
-                      Supports Excel (.xlsx, .xls) and CSV (.csv)
-                    </p>
-                    <div className="mt-3 flex items-center gap-2">
-                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded font-mono font-medium">.xlsx</span>
-                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded font-mono font-medium">.xls</span>
-                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded font-mono font-medium">.csv (UTF-8 / windows-1252)</span>
+              {(isLoading.template || isProcessing) ? (
+                <FileUploadLoadingIndicator
+                  fileName={uploadingFileInfo?.name || "spreadsheet"}
+                  fileSize={uploadingFileInfo?.size}
+                  statusText={loadingText || bannerMessage || "Reading & analyzing spreadsheet..."}
+                />
+              ) : (
+                !uploadConflicts && !uploadValidityErrors && (
+                  <div
+                    className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors ${isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-gray-400"}`}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() =>
+                      document.getElementById("file-upload-input")?.click()
+                    }
+                  >
+                    <div className="flex flex-col items-center justify-center">
+                      <UploadCloudIcon
+                        className={`w-12 h-12 mb-4 ${isDragging ? "text-blue-500" : "text-gray-400"}`}
+                      />
+                      <p className="text-gray-700 font-semibold text-base mb-1">
+                        Drop file or click to browse
+                      </p>
+                      <p className="text-gray-500 text-xs mt-1">
+                        Supports Excel (.xlsx, .xls) and CSV (.csv)
+                      </p>
+                      <div className="mt-3 flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded font-mono font-medium">.xlsx</span>
+                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded font-mono font-medium">.xls</span>
+                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded font-mono font-medium">.csv (UTF-8 / windows-1252)</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )
               )}
 
               <div className="mt-8 pt-6 border-t border-gray-200 flex justify-end">
@@ -6030,9 +6146,11 @@ const App: React.FC = () => {
           {currentStep === "validation_errors" && (
             <PreflightValidationScreen
               reviews={adjustmentsToReview}
-              onProceedToReview={() => {
-                setCurrentStep("review");
-                window.scrollTo({ top: 0, behavior: "smooth" });
+              onProceedToReview={async () => {
+                await runWithBanner("Preparing review table & validating sequential bundles...", async () => {
+                  setCurrentStep("review");
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                });
               }}
               onBackToFields={() => {
                 setCurrentStep("map_fields");

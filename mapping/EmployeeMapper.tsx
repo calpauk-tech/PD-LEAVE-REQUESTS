@@ -295,13 +295,19 @@ export const EmployeeMapper: React.FC<EmployeeMapperProps> = ({
     return fullRowMatches;
   };
 
-  const [rowMatches, setRowMatches] = useState<RowEmployeeMatch[]>(() => {
-    return runGroupedMatching();
-  });
+  const [rowMatches, setRowMatches] = useState<RowEmployeeMatch[]>([]);
+  const [isComputing, setIsComputing] = useState<boolean>(true);
 
-  // Re-run matching if rows or allEmployees change
+  // Run matching asynchronously so React paints the transition and banner first
   useEffect(() => {
-    setRowMatches(runGroupedMatching());
+    setIsComputing(true);
+    const timer = setTimeout(() => {
+      const computed = runGroupedMatching();
+      setRowMatches(computed);
+      setIsComputing(false);
+    }, 40);
+
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, allEmployees, identityConfig]);
 
@@ -394,19 +400,27 @@ export const EmployeeMapper: React.FC<EmployeeMapperProps> = ({
 
   // Auto-map remaining unmapped rows
   const handleAutoMapRemaining = () => {
-    const currentManuals = new Map<string, number | null>();
-    rowMatches.forEach((rm) => {
-      if (rm.matchStatus === "manual" || rm.isSkipped) {
-        currentManuals.set(rm.identityKey, rm.matchedEmployeeId);
-      }
-    });
-    const recomputed = runGroupedMatching(currentManuals);
-    setRowMatches(recomputed);
+    setIsComputing(true);
+    setTimeout(() => {
+      const currentManuals = new Map<string, number | null>();
+      rowMatches.forEach((rm) => {
+        if (rm.matchStatus === "manual" || rm.isSkipped) {
+          currentManuals.set(rm.identityKey, rm.matchedEmployeeId);
+        }
+      });
+      const recomputed = runGroupedMatching(currentManuals);
+      setRowMatches(recomputed);
+      setIsComputing(false);
+    }, 40);
   };
 
   // Reset all mappings
   const handleResetAll = () => {
-    setRowMatches(runGroupedMatching());
+    setIsComputing(true);
+    setTimeout(() => {
+      setRowMatches(runGroupedMatching());
+      setIsComputing(false);
+    }, 40);
   };
 
   // Filtered and sorted rows for rendering
@@ -514,17 +528,39 @@ export const EmployeeMapper: React.FC<EmployeeMapperProps> = ({
         </div>
       </div>
 
-      {/* Progress & Stat Badges Bar */}
-      <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 mb-6">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-gray-800">
-              {stats.mapped} of {stats.total} rows matched
-            </span>
-            <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded-full">
-              {stats.percentage}% Complete
+      {isComputing ? (
+        <div className="bg-blue-50/70 border-2 border-blue-200 rounded-xl p-10 text-center my-6 animate-in fade-in">
+          <div className="max-w-md mx-auto flex flex-col items-center">
+            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-3 shadow-inner">
+              <Sparkles className="w-6 h-6 animate-spin text-blue-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">
+              Matching Employees & Calculating Similarity Scores...
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Comparing spreadsheet identities with Planday employee records using 1-to-1 heuristics.
+            </p>
+            <div className="w-full bg-blue-100 rounded-full h-3 overflow-hidden border border-blue-200 mb-2 p-0.5">
+              <div className="bg-blue-600 h-full w-full animate-pulse rounded-full" />
+            </div>
+            <span className="text-xs font-semibold text-blue-700">
+              Processing {identityCounts.size} unique employee identities across {rows.length} rows...
             </span>
           </div>
+        </div>
+      ) : (
+        <>
+          {/* Progress & Stat Badges Bar */}
+          <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 mb-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-gray-800">
+                  {stats.mapped} of {stats.total} rows matched
+                </span>
+                <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded-full">
+                  {stats.percentage}% Complete
+                </span>
+              </div>
 
           <div className="flex items-center gap-2 text-xs font-medium">
             <span className="flex items-center gap-1 px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-md">
@@ -810,6 +846,8 @@ export const EmployeeMapper: React.FC<EmployeeMapperProps> = ({
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Bottom Navigation Actions */}
