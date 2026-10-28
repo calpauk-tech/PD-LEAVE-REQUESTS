@@ -248,7 +248,13 @@ import { FieldMapper } from "./mapping/FieldMapper";
 import { PreflightValidationScreen } from "./mapping/PreflightValidationScreen";
 import { parseSpreadsheetFile } from "./mapping/fileParser";
 import { buildNormalizedReviewRecords } from "./mapping/normalization";
-import type { IdentityConfig, ParsedFileResult } from "./mapping/types";
+import type { IdentityConfig, ParsedFileResult, RowEmployeeMatch } from "./mapping/types";
+import {
+  ErrorLogItem,
+  compileMasterErrorLog,
+  exportErrorLogReportToExcel,
+} from "./mapping/errorLogService";
+import { ErrorLogView } from "./mapping/ErrorLogView";
 import { useHeavyTaskBanner } from "./useHeavyTaskBanner";
 import { ProcessingBanner } from "./ProcessingBanner";
 import { FileUploadLoadingIndicator } from "./FileUploadLoadingIndicator";
@@ -1501,6 +1507,10 @@ const App: React.FC = () => {
 
   // Step 5 State
   const [updateSummary, setUpdateSummary] = useState<AdjustmentReview[]>([]);
+  const [employeeRowMatches, setEmployeeRowMatches] = useState<RowEmployeeMatch[]>([]);
+  const [skippedValidationReviews, setSkippedValidationReviews] = useState<AdjustmentReview[]>([]);
+  const [summaryActiveTab, setSummaryActiveTab] = useState<"all" | "errors">("all");
+  const [showSkipAndSendConfirmModal, setShowSkipAndSendConfirmModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showAbortModal, setShowAbortModal] = useState(false);
   const [showRemoveConfirmModal, setShowRemoveConfirmModal] = useState(false);
@@ -1682,6 +1692,10 @@ const App: React.FC = () => {
     setBalanceOptionError(null);
     clearAdjustmentsHistory([]);
     setUpdateSummary([]);
+    setSkippedValidationReviews([]);
+    setEmployeeRowMatches([]);
+    setSummaryActiveTab("all");
+    setShowSkipAndSendConfirmModal(false);
     setFetchedTemplateData([]);
     setDetectedColumnFormats(null);
     setUploadConflicts(null);
@@ -2179,57 +2193,7 @@ const App: React.FC = () => {
         setIsLoading((prev) => ({ ...prev, template: false }));
 
         const parseExcelDate = (input: any): string | null => {
-          if (input == null) return null;
-
-          if (input instanceof Date) {
-            if (isNaN(input.getTime())) return null;
-
-            // Always use local methods!
-            const y = input.getFullYear();
-            const m = String(input.getMonth() + 1).padStart(2, "0");
-            const d = String(input.getDate()).padStart(2, "0");
-
-            return `${y}-${m}-${d}`;
-          }
-
-          if (typeof input === "number" || /^\d{5}$/.test(String(input))) {
-            const serial = parseInt(String(input), 10);
-            if (serial > 20000 && serial < 80000) {
-              // Valid bounds for recent dates
-              // 25569 is the difference in days between Jan 1 1900 and Jan 1 1970
-              const dateObj = new Date(
-                Math.round((serial - 25569) * 86400 * 1000),
-              );
-
-              // Use UTC methods here because we calculated pure absolute time from the Unix Epoch
-              const y = dateObj.getUTCFullYear();
-              const m = String(dateObj.getUTCMonth() + 1).padStart(2, "0");
-              const d = String(dateObj.getUTCDate()).padStart(2, "0");
-
-              return `${y}-${m}-${d}`;
-            }
-          }
-
-          if (typeof input === "string") {
-            const str = input.trim();
-            if (str.match(/^\d{4}-\d{2}-\d{2}$/)) return str;
-
-            // Assuming DD/MM/YYYY or DD/MM/YY
-            const parts = str.match(
-              /(^|\b)(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2}|\d{4})\b/,
-            );
-            if (parts) {
-              let day = parseInt(parts[2], 10);
-              let month = parseInt(parts[3], 10);
-              let year = parseInt(parts[4], 10);
-
-              if (year < 100) year += 2000;
-
-              // Return standard structure
-              return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-            }
-          }
-          return null;
+          return parseDateToIso(input, downloadDateFormat);
         };
 
         const reviews = json.map((row, idx): any => {
@@ -2526,8 +2490,14 @@ reader.readAsArrayBuffer(file);
     });
   };
 
-  const handleEmployeeMappingConfirm = async (empMap: Map<number, number | null>) => {
+  const handleEmployeeMappingConfirm = async (
+    empMap: Map<number, number | null>,
+    rowMatches?: RowEmployeeMatch[]
+  ) => {
     setEmployeeMapping(empMap);
+    if (rowMatches && rowMatches.length > 0) {
+      setEmployeeRowMatches(rowMatches);
+    }
     setIsLoading((prev) => ({ ...prev, template: true }));
     setShowLoadingBar(true);
     setLoadingText("Saving employee mappings & analyzing columns...");
@@ -2608,6 +2578,29 @@ reader.readAsArrayBuffer(file);
         }
       }
     );
+  };
+
+  const handleToggleValidationDateFormat = async () => {
+    if (!uploadedFileData || !identityConfig) return;
+    const newFormat = downloadDateFormat === "EU" ? "US" : "EU";
+    setDownloadDateFormat(newFormat);
+
+    const fMap = fieldMapping.size > 0 ? fieldMapping : new Map();
+    const cache = employeeAccountsCacheRef.current;
+
+    const reviews = buildNormalizedReviewRecords(
+      uploadedFileData.rows,
+      employeeMapping,
+      fMap,
+      allEmployees,
+      accountTypes,
+      cache,
+      newFormat,
+      identityConfig
+    );
+
+    clearAdjustmentsHistory(reviews);
+    resetReviewSessionState(reviews);
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2921,7 +2914,47 @@ reader.readAsArrayBuffer(file);
   };
 
   const handleDeleteRow = (id: string) => {
+    const itemToDelete = adjustmentsToReview.find((item) => item.id === id);
+    if (itemToDelete) {
+      setSkippedValidationReviews((prev) => [
+        ...prev,
+        {
+          ...itemToDelete,
+          status: "skipped",
+          stage: "validation",
+          error: itemToDelete.error || "Removed by user during review",
+        },
+      ]);
+    }
     setAdjustmentsToReview((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleSkipAllInvalidRows = () => {
+    const invalidRows = adjustmentsToReview.filter((item) => item.isValidationError || item.error || !item.date);
+    const validRows = adjustmentsToReview.filter((item) => !item.isValidationError && !item.error && item.date);
+
+    if (invalidRows.length > 0) {
+      setSkippedValidationReviews((prev) => [
+        ...prev,
+        ...invalidRows.map((item) => ({
+          ...item,
+          status: "skipped" as const,
+          stage: "validation" as const,
+          error: item.error || (!item.date ? "Missing Date" : "Validation issue"),
+        })),
+      ]);
+    }
+
+    setAdjustmentsToReview(validRows);
+    setErrorFilterRowIds(null);
+  };
+
+  const handleConfirmSkipAndSend = () => {
+    setShowSkipAndSendConfirmModal(false);
+    handleSkipAllInvalidRows();
+    setTimeout(() => {
+      executeBatchUpdate();
+    }, 50);
   };
 
   const handleSelectAllErrors = () => {
@@ -3012,6 +3045,18 @@ reader.readAsArrayBuffer(file);
   };
 
   const confirmRemoveSelected = () => {
+    const itemsToRemove = adjustmentsToReview.filter((item) => selectedReviewIds.has(item.id));
+    if (itemsToRemove.length > 0) {
+      setSkippedValidationReviews((prev) => [
+        ...prev,
+        ...itemsToRemove.map((item) => ({
+          ...item,
+          status: "skipped" as const,
+          stage: "validation" as const,
+          error: item.error || "Removed by user during review",
+        })),
+      ]);
+    }
     setAdjustmentsToReview((prev) =>
       prev.filter((item) => !selectedReviewIds.has(item.id)),
     );
@@ -3974,14 +4019,14 @@ reader.readAsArrayBuffer(file);
       // grouping
       const groupings = new Map<string, any[]>();
       pendingAdjustments.forEach((item) => {
-        if (item.status === "error" && item.isValidationError) {
-          summary.push(item);
-          return;
-        }
-        if (!item.start) {
-          item.status = "error";
-          item.error = "Skipped - no date";
-          summary.push({ ...item, timestamp: new Date().toLocaleString() });
+        if (item.isValidationError || item.error || !item.start) {
+          summary.push({
+            ...item,
+            status: "skipped",
+            stage: "validation",
+            error: item.error || (!item.start ? "Missing Date" : "Validation issue"),
+            timestamp: new Date().toLocaleString(),
+          });
           return;
         }
         const absenceType =
@@ -4223,6 +4268,7 @@ reader.readAsArrayBuffer(file);
               addLog(`Failed to create request for employee ${empId}: ${err.message}`, "error");
               req.originalRows.forEach((row: any) => {
                 row.status = "error";
+                row.stage = "update";
                 row.error = err.message;
                 row.timestamp = new Date().toLocaleString();
                 if (req.payload?.note) row.comment = req.payload.note;
@@ -4247,6 +4293,7 @@ reader.readAsArrayBuffer(file);
              if (!summary.some(s => s.id === firstRow.id)) {
                  req.originalRows.forEach((row: any) => {
                      row.status = "error";
+                     row.stage = "update";
                      row.error = "Aborted by user";
                      row.timestamp = new Date().toLocaleString();
                      summary.push(row);
@@ -4517,6 +4564,26 @@ reader.readAsArrayBuffer(file);
 
   // Sort summary: Do not sort by status anymore to maintain bundle order
   const sortedSummary = [...updateSummary];
+
+  const masterErrorLog = useMemo(() => {
+    return compileMasterErrorLog(
+      uploadedFileData,
+      employeeMapping,
+      fieldMapping,
+      identityConfig,
+      skippedValidationReviews,
+      adjustmentsToReview,
+      updateSummary
+    );
+  }, [
+    uploadedFileData,
+    employeeMapping,
+    fieldMapping,
+    identityConfig,
+    skippedValidationReviews,
+    adjustmentsToReview,
+    updateSummary,
+  ]);
 
   const hasValidityErrors = adjustmentsToReview.some(
     (a) => a.status === "error" && a.isValidationError,
@@ -6137,6 +6204,8 @@ reader.readAsArrayBuffer(file);
               identityConfig={identityConfig}
               accountTypes={accountTypes}
               initialMapping={fieldMapping.size > 0 ? fieldMapping : undefined}
+              dateFormatPreference={downloadDateFormat}
+              onDateFormatChange={(fmt) => setDownloadDateFormat(fmt)}
               onConfirm={handleFieldMappingConfirm}
               onBack={() => setCurrentStep("map_employees")}
             />
@@ -6146,11 +6215,27 @@ reader.readAsArrayBuffer(file);
           {currentStep === "validation_errors" && (
             <PreflightValidationScreen
               reviews={adjustmentsToReview}
+              dateFormatPreference={downloadDateFormat}
+              onToggleDateFormat={handleToggleValidationDateFormat}
               onProceedToReview={async () => {
                 await runWithBanner("Preparing review table & validating sequential bundles...", async () => {
                   setCurrentStep("review");
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 });
+              }}
+              onSkipErrorsAndProceed={(validReviews, errorReviews) => {
+                setSkippedValidationReviews((prev) => [
+                  ...prev,
+                  ...errorReviews.map((r) => ({
+                    ...r,
+                    status: "skipped" as const,
+                    stage: "validation" as const,
+                  })),
+                ]);
+                clearAdjustmentsHistory(validReviews);
+                resetReviewSessionState(validReviews);
+                setCurrentStep("review");
+                window.scrollTo({ top: 0, behavior: "smooth" });
               }}
               onBackToFields={() => {
                 setCurrentStep("map_fields");
@@ -6387,23 +6472,38 @@ reader.readAsArrayBuffer(file);
               </div>
               {/* Table Error Banner */}
               {totalTableErrors > 0 && (
-                <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-4">
-                  <div className="flex-shrink-0">
-                    <ExclamationIcon className="h-6 w-6 text-red-600" />
+                <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 mt-0.5">
+                      <ExclamationIcon className="h-5 w-5 text-red-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-red-800 font-bold text-sm">
+                        Validation Issues Detected ({totalTableErrors} row{totalTableErrors !== 1 ? "s" : ""})
+                      </h4>
+                      <p className="text-red-700 text-xs mt-0.5">
+                        These rows have issues (missing dates, accounts, or invalid cost). You can correct them in-place, or skip them to proceed with the {adjustmentsToReview.length - totalTableErrors} valid requests.
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex-1">
-                    <h4 className="text-red-800 font-bold text-sm">
-                      Action Required
-                    </h4>
-                    <p className="text-red-700 text-sm mt-1">
-                      There are {totalTableErrors} row
-                      {totalTableErrors !== 1 ? "s" : ""} with validation errors
-                      in your table.
-                    </p>
-                    <p className="text-red-700 text-sm mt-1">
-                      You must correct these errors or remove the affected rows
-                      before you can continue to send the requests.
-                    </p>
+                  <div className="flex items-center gap-2 self-end md:self-auto flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleSkipAllInvalidRows}
+                      className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                      title="Move all invalid rows to Error Log and keep only valid rows"
+                    >
+                      Skip All {totalTableErrors} Invalid Rows
+                    </button>
+                    {errorFilterRowIds === null && (
+                      <button
+                        type="button"
+                        onClick={toggleErrorFilter}
+                        className="px-3 py-1.5 bg-white border border-red-300 text-red-700 hover:bg-red-50 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                      >
+                        Inspect Errors
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -7134,15 +7234,23 @@ reader.readAsArrayBuffer(file);
                     &larr; Back
                   </button>
                   <button
-                    onClick={() => setShowConfirmModal(true)}
+                    onClick={() => {
+                      if (totalTableErrors > 0) {
+                        setShowSkipAndSendConfirmModal(true);
+                      } else {
+                        setShowConfirmModal(true);
+                      }
+                    }}
                     disabled={
                       isLoading.submitting ||
                       adjustmentsToReview.length === 0 ||
-                      totalTableErrors > 0
+                      totalTableErrors === adjustmentsToReview.length
                     }
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-400"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-400 cursor-pointer shadow-sm transition-colors"
                   >
-                    {updateMethod === "migrate" ? "Migrate Requests" : "Send Requests"}
+                    {totalTableErrors > 0
+                      ? `Send ${adjustmentsToReview.length - totalTableErrors} Valid Requests`
+                      : (updateMethod === "migrate" ? "Migrate Requests" : "Send Requests")}
                   </button>
                 </div>
               </div>
@@ -7265,241 +7373,404 @@ reader.readAsArrayBuffer(file);
           )}
 
           {currentStep === "summary" && (
-            <div className="bg-white p-8 rounded-lg shadow-md max-w-[1024px] mx-auto text-center">
-              <h2 className="text-2xl font-bold mb-6 text-gray-800">
-                Upload summary
-              </h2>
-              <div className="flex justify-around text-center my-8">
-                <div>
-                  <p className="text-5xl font-bold text-green-500">
+            <div className="bg-white p-8 rounded-lg shadow-md max-w-[1280px] mx-auto text-center">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                <div className="text-left">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 text-green-700 text-xs font-semibold rounded-full mb-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Process Completed
+                  </span>
+                  <h2 className="text-2xl font-bold text-gray-800">
+                    Upload & Processing Summary
+                  </h2>
+                </div>
+
+                <div className="flex items-center gap-2 self-start md:self-center flex-wrap">
+                  {masterErrorLog.length > 0 && (
+                    <button
+                      onClick={() =>
+                        exportErrorLogReportToExcel(
+                          masterErrorLog,
+                          uploadedFileData?.totalRows,
+                          downloadDateFormat
+                        )
+                      }
+                      className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs py-2 px-3.5 rounded-lg shadow-xs transition-colors cursor-pointer"
+                    >
+                      <DownloadIcon className="h-3.5 w-3.5" />
+                      <span>Export Error Log Report ({masterErrorLog.length})</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={handleExportResults}
+                    className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold text-xs py-2 px-3.5 rounded-lg shadow-xs transition-colors cursor-pointer"
+                  >
+                    <DownloadIcon className="h-3.5 w-3.5" />
+                    <span>Export All Results</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Summary KPI Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8 text-left">
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-5">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Total In File / Evaluated
+                  </span>
+                  <div className="text-3xl font-bold text-gray-900 mt-2">
+                    {uploadedFileData?.totalRows || (updateSummary.length + masterErrorLog.length)}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Total leave records in source file</p>
+                </div>
+
+                <div className="bg-green-50/70 border border-green-200 rounded-xl p-5">
+                  <span className="text-xs font-semibold text-green-700 uppercase tracking-wider">
+                    Uploaded Successfully
+                  </span>
+                  <div className="text-3xl font-bold text-green-600 mt-2">
                     {updateSummary.filter((s) => s.status === "success").length}
-                  </p>
-                  <p className="text-gray-500 mt-1">Successful</p>
+                  </div>
+                  <p className="text-xs text-green-700/80 mt-1">Leave requests created in Planday</p>
                 </div>
+
+                <div className="bg-red-50/70 border border-red-200 rounded-xl p-5">
+                  <span className="text-xs font-semibold text-red-700 uppercase tracking-wider">
+                    Unsent / Issues Encountered
+                  </span>
+                  <div className="text-3xl font-bold text-red-600 mt-2">
+                    {masterErrorLog.length}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                    {masterErrorLog.filter(e => e.stage === "mapping").length > 0 && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
+                        {masterErrorLog.filter(e => e.stage === "mapping").length} Unmapped
+                      </span>
+                    )}
+                    {masterErrorLog.filter(e => e.stage === "validation").length > 0 && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                        {masterErrorLog.filter(e => e.stage === "validation").length} Validation Issues
+                      </span>
+                    )}
+                    {masterErrorLog.filter(e => e.stage === "update").length > 0 && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800">
+                        {masterErrorLog.filter(e => e.stage === "update").length} API Failures
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Navigation View Switcher (Tabs) */}
+              <div className="flex items-center justify-between border-b border-gray-200 mb-6 pb-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSummaryActiveTab("all")}
+                    className={`px-4 py-2 font-semibold text-xs rounded-lg transition-colors cursor-pointer ${
+                      summaryActiveTab === "all"
+                        ? "bg-blue-600 text-white shadow-xs"
+                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                    }`}
+                  >
+                    All Results ({sortedSummary.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSummaryActiveTab("errors")}
+                    className={`px-4 py-2 font-semibold text-xs rounded-lg transition-colors flex items-center gap-2 cursor-pointer ${
+                      summaryActiveTab === "errors"
+                        ? "bg-amber-600 text-white shadow-xs"
+                        : "text-amber-800 hover:bg-amber-50"
+                    }`}
+                  >
+                    <span>Error Log Report</span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        summaryActiveTab === "errors"
+                          ? "bg-amber-800 text-amber-100"
+                          : "bg-amber-100 text-amber-900"
+                      }`}
+                    >
+                      {masterErrorLog.length}
+                    </span>
+                  </button>
+                </div>
+
+                {summaryActiveTab === "all" && (
+                  <span className="text-xs text-gray-500 hidden sm:inline-block">
+                    Showing all submitted request items
+                  </span>
+                )}
+              </div>
+
+              {/* TAB 1: Error Log Report */}
+              {summaryActiveTab === "errors" && (
+                <div className="mb-6">
+                  <ErrorLogView
+                    errorLogItems={masterErrorLog}
+                    totalFileRows={uploadedFileData?.totalRows}
+                    dateFormatPreference={downloadDateFormat}
+                    onRetryFailed={handleRetryFailed}
+                    hasApiFailures={updateSummary.some((s) => s.status === "error")}
+                  />
+                </div>
+              )}
+
+              {/* TAB 2: All Results Table */}
+              {summaryActiveTab === "all" && (
                 <div>
-                  <p className="text-5xl font-bold text-red-500">
-                    {updateSummary.filter((s) => s.status === "error").length}
-                  </p>
-                  <p className="text-gray-500 mt-1">Failed</p>
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center mt-8 mb-4">
-                <h3 className="text-lg font-semibold text-gray-800">
-                  Detailed Results
-                </h3>
-              </div>
-
-              <div className="max-h-[800px] overflow-y-auto border rounded-lg shadow-inner">
-                <table className="w-full text-sm text-left relative">
-                  <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
-                    <tr>
-                      <th
-                        scope="col"
-                        className="px-4 py-3 align-middle text-left"
-                      >
-                        Employee
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-4 py-3 align-middle text-left"
-                      >
-                        {updateMethod === "migrate" ? "From Account" : "Account"}
-                      </th>
-                      {updateMethod === "migrate" && (
-                        <th
-                          scope="col"
-                          className="px-4 py-3 align-middle text-left"
-                        >
-                          To Account
-                        </th>
-                      )}
-                      <th
-                        scope="col"
-                        className="px-4 py-3 align-middle text-left w-32"
-                      >
-                        Date
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-2 py-3 align-middle text-left w-24"
-                      >
-                        Cost
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-4 py-3 align-middle text-left w-24"
-                      >
-                        Unit
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-4 py-3 align-middle text-left"
-                      >
-                        Comment
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-4 py-3 align-middle text-left w-32"
-                      >
-                        Status
-                      </th>
-                      <th
-                        scope="col"
-                        className="px-4 py-3 align-middle text-left w-48"
-                      >
-                        Result Message
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedSummary.map((s, idx) => {
-                      const showSeparator = s.isRequestStart || idx === 0;
-                      const fromDate = s.requestStartDate ? formatDateForDisplay(s.requestStartDate, downloadDateFormat) : "";
-                      const toDate = s.requestEndDate ? formatDateForDisplay(s.requestEndDate, downloadDateFormat) : "";
-                      const dateRangeText = fromDate === toDate 
-                        ? `Leave Request ${fromDate}`
-                        : `Leave Request ${fromDate} - ${toDate}`;
-
-                      return (
-                        <React.Fragment key={s.id}>
-                          {showSeparator && (
-                            <tr>
-                              <td
-                                colSpan={updateMethod === "migrate" ? 9 : 8}
-                                className="text-center py-2 bg-gray-100 text-gray-500 font-medium text-sm border-y border-gray-200"
-                              >
-                                {idx === 0 && !s.isRequestStart ? (
-                                  <span className="italic">{dateRangeText} (continued)</span>
-                                ) : (
-                                  <span>{dateRangeText}</span>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                          <tr
-                            className={`border-b hover:bg-gray-50 ${s.status === "error" ? "bg-red-50" : s.status === "skipped" ? "bg-amber-50" : "bg-white"}`}
+                  <div className="max-h-[600px] overflow-y-auto border border-gray-200 rounded-lg shadow-inner">
+                    <table className="w-full text-sm text-left relative">
+                      <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
+                        <tr>
+                          <th
+                            scope="col"
+                            className="px-4 py-3 align-middle text-left"
                           >
-                            <td className="px-4 py-3 font-medium text-gray-900 leading-tight">
-                              <div className="flex items-center gap-1">
-                                <span>{s.employeeName}</span>
-                                {s.employeeMatchType === "exact" && (
-                                  <div className="group/match relative inline-flex">
-                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                    <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover/match:opacity-100">
-                                      Exact match by Salary ID and Name
-                                    </div>
-                                  </div>
-                                )}
-                                {s.employeeMatchType === "salary" && (
-                                  <div className="group/match relative inline-flex">
-                                    <CheckCircle2 className="w-4 h-4 text-purple-500" />
-                                    <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-pre-wrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover/match:opacity-100 text-center w-64">
-                                      Matched via Salary ID{"\n"}The employee name in the file differs from the name in the portal: {s.portalEmployeeName}
-                                    </div>
-                                  </div>
-                                )}
-                                {s.employeeMatchType === "name" && (
-                                  <div className="group/match relative inline-flex">
-                                    <CheckCircle2 className="w-4 h-4 text-orange-500" />
-                                    <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-pre-wrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover/match:opacity-100 text-center w-64">
-                                      Matched via Name{"\n"}The Salary/Payroll ID in the file differs from the ID in the portal: {s.portalSalaryIdentifier || 'N/A'}
-                                    </div>
-                                  </div>
-                                )}
-                                {s.employeeMatchType === "none" && (
-                                  <div className="group/match relative inline-flex">
-                                    <XCircle className="w-4 h-4 text-red-500" />
-                                    <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-pre-wrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover/match:opacity-100 text-center w-48">
-                                      Employee not found{"\n"}Try find the employee inside the portal and check the name and salary/payroll ID
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                              {s.salaryIdentifier && (
-                                <div className="text-xs font-mono text-gray-500 mt-0.5">
-                                  SID: {s.salaryIdentifier}
-                                </div>
+                            Employee
+                          </th>
+                          <th
+                            scope="col"
+                            className="px-4 py-3 align-middle text-left"
+                          >
+                            {updateMethod === "migrate" ? "From Account" : "Account"}
+                          </th>
+                          {updateMethod === "migrate" && (
+                            <th
+                              scope="col"
+                              className="px-4 py-3 align-middle text-left"
+                            >
+                              To Account
+                            </th>
+                          )}
+                          <th
+                            scope="col"
+                            className="px-4 py-3 align-middle text-left w-32"
+                          >
+                            Date
+                          </th>
+                          <th
+                            scope="col"
+                            className="px-2 py-3 align-middle text-left w-24"
+                          >
+                            Cost
+                          </th>
+                          <th
+                            scope="col"
+                            className="px-4 py-3 align-middle text-left w-24"
+                          >
+                            Unit
+                          </th>
+                          <th
+                            scope="col"
+                            className="px-4 py-3 align-middle text-left"
+                          >
+                            Comment
+                          </th>
+                          <th
+                            scope="col"
+                            className="px-4 py-3 align-middle text-left w-32"
+                          >
+                            Status
+                          </th>
+                          <th
+                            scope="col"
+                            className="px-4 py-3 align-middle text-left w-56"
+                          >
+                            Result Message & Diagnostics
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedSummary.map((s, idx) => {
+                          const showSeparator = s.isRequestStart || idx === 0;
+                          const fromDate = s.requestStartDate
+                            ? formatDateForDisplay(s.requestStartDate, downloadDateFormat)
+                            : "";
+                          const toDate = s.requestEndDate
+                            ? formatDateForDisplay(s.requestEndDate, downloadDateFormat)
+                            : "";
+                          const dateRangeText =
+                            fromDate === toDate
+                              ? `Leave Request ${fromDate}`
+                              : `Leave Request ${fromDate} - ${toDate}`;
+
+                          return (
+                            <React.Fragment key={s.id}>
+                              {showSeparator && (
+                                <tr>
+                                  <td
+                                    colSpan={updateMethod === "migrate" ? 9 : 8}
+                                    className="text-center py-2 bg-gray-100 text-gray-500 font-medium text-sm border-y border-gray-200"
+                                  >
+                                    {idx === 0 && !s.isRequestStart ? (
+                                      <span className="italic">{dateRangeText} (continued)</span>
+                                    ) : (
+                                      <span>{dateRangeText}</span>
+                                    )}
+                                  </td>
+                                </tr>
                               )}
-                            </td>
-                            <td className="px-4 py-3">
-                              {s.accountName}
-                              {(s.spendingPeriod || s.validityPeriod) && (
-                                <div className="text-xs text-gray-500 mt-1 whitespace-nowrap">
-                                  Valid:{" "}
-                                  {formatDateForDisplay(
-                                    (s.spendingPeriod || s.validityPeriod)
-                                      ?.start,
-                                    downloadDateFormat
-                                  )}{" "}
-                                  to{" "}
-                                  {formatDateForDisplay(
-                                    (s.spendingPeriod || s.validityPeriod)?.end,
-                                    downloadDateFormat
+                              <tr
+                                className={`border-b hover:bg-gray-50 ${
+                                  s.status === "error"
+                                    ? "bg-red-50"
+                                    : s.status === "skipped"
+                                    ? "bg-amber-50"
+                                    : "bg-white"
+                                }`}
+                              >
+                                <td className="px-4 py-3 font-medium text-gray-900 leading-tight">
+                                  <div className="flex items-center gap-1">
+                                    <span>{s.employeeName}</span>
+                                    {s.employeeMatchType === "exact" && (
+                                      <div className="group/match relative inline-flex">
+                                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                        <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover/match:opacity-100">
+                                          Exact match by Salary ID and Name
+                                        </div>
+                                      </div>
+                                    )}
+                                    {s.employeeMatchType === "salary" && (
+                                      <div className="group/match relative inline-flex">
+                                        <CheckCircle2 className="w-4 h-4 text-purple-500" />
+                                        <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-pre-wrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover/match:opacity-100 text-center w-64">
+                                          Matched via Salary ID{"\n"}The employee name in the file differs from the name in the portal: {s.portalEmployeeName}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {s.employeeMatchType === "name" && (
+                                      <div className="group/match relative inline-flex">
+                                        <CheckCircle2 className="w-4 h-4 text-orange-500" />
+                                        <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-pre-wrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover/match:opacity-100 text-center w-64">
+                                          Matched via Name{"\n"}The Salary/Payroll ID in the file differs from the ID in the portal: {s.portalSalaryIdentifier || 'N/A'}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {s.employeeMatchType === "none" && (
+                                      <div className="group/match relative inline-flex">
+                                        <XCircle className="w-4 h-4 text-red-500" />
+                                        <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-pre-wrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover/match:opacity-100 text-center w-48">
+                                          Employee not found{"\n"}Try finding the employee inside the portal and check the name and salary/payroll ID
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {s.salaryIdentifier && (
+                                    <div className="text-xs font-mono text-gray-500 mt-0.5">
+                                      SID: {s.salaryIdentifier}
+                                    </div>
                                   )}
-                                </div>
-                              )}
-                            </td>
-                            {updateMethod === "migrate" && (
-                              <td className="px-4 py-3 align-middle">
-                                {accountTypes.find(t => t.id === migrateToAccountId)?.name || "Unknown"}
-                              </td>
-                            )}
-                            <td className="px-4 py-3 whitespace-nowrap align-middle">
-                              {s.date || s.start ? formatDateForDisplay(s.date || s.start, downloadDateFormat) : ""}
-                            </td>
-                            <td className="px-2 py-3 align-middle font-mono">
-                              {Number(
-                                s.adjustment !== undefined
-                                  ? s.adjustment
-                                  : s.cost || 0,
-                              ).toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-gray-700 whitespace-nowrap align-middle">
-                              {s.unit || s.billingMode || "N/A"}
-                            </td>
-                            <td
-                              className="px-4 py-3 text-xs text-gray-500 truncate max-w-[200px] align-middle"
-                              title={s.comment}
-                            >
-                              {s.comment}
-                            </td>
-                            <td className="px-4 py-3 text-xs align-middle text-gray-900">
-                              {s.requestStatus || "Requested"}
-                            </td>
-                            <td
-                              className={`px-4 py-3 text-xs align-middle ${s.status === "error" ? "text-red-600 font-semibold" : s.status === "skipped" ? "text-amber-600 font-semibold" : "text-green-600 font-semibold"}`}
-                            >
-                              {s.status === "error" || s.status === "skipped"
-                                ? s.error
-                                : "Uploaded Successfully"}
+                                </td>
+                                <td className="px-4 py-3">
+                                  {s.accountName}
+                                  {(s.spendingPeriod || s.validityPeriod) && (
+                                    <div className="text-xs text-gray-500 mt-1 whitespace-nowrap">
+                                      Valid:{" "}
+                                      {formatDateForDisplay(
+                                        (s.spendingPeriod || s.validityPeriod)?.start,
+                                        downloadDateFormat
+                                      )}{" "}
+                                      to{" "}
+                                      {formatDateForDisplay(
+                                        (s.spendingPeriod || s.validityPeriod)?.end,
+                                        downloadDateFormat
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                                {updateMethod === "migrate" && (
+                                  <td className="px-4 py-3 align-middle">
+                                    {accountTypes.find((t) => t.id === migrateToAccountId)?.name || "Unknown"}
+                                  </td>
+                                )}
+                                <td className="px-4 py-3 whitespace-nowrap align-middle">
+                                  {s.date || s.start ? formatDateForDisplay(s.date || s.start, downloadDateFormat) : ""}
+                                </td>
+                                <td className="px-2 py-3 align-middle font-mono">
+                                  {Number(
+                                    s.adjustment !== undefined
+                                      ? s.adjustment
+                                      : s.cost || 0
+                                  ).toFixed(2)}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-gray-700 whitespace-nowrap align-middle">
+                                  {s.unit || s.billingMode || "N/A"}
+                                </td>
+                                <td
+                                  className="px-4 py-3 text-xs text-gray-500 truncate max-w-[200px] align-middle"
+                                  title={s.comment}
+                                >
+                                  {s.comment}
+                                </td>
+                                <td className="px-4 py-3 text-xs align-middle text-gray-900">
+                                  {s.requestStatus || "Requested"}
+                                </td>
+                                <td
+                                  className={`px-4 py-3 text-xs align-middle ${
+                                    s.status === "error"
+                                      ? "text-red-600 font-semibold"
+                                      : s.status === "skipped"
+                                      ? "text-amber-600 font-semibold"
+                                      : "text-green-600 font-semibold"
+                                  }`}
+                                >
+                                  {s.status === "error"
+                                    ? `Failed: ${s.error}`
+                                    : s.status === "skipped"
+                                    ? `Skipped: ${s.error || "Validation issue"}`
+                                    : "Uploaded Successfully"}
+                                </td>
+                              </tr>
+                            </React.Fragment>
+                          );
+                        })}
+
+                        {sortedSummary.length === 0 && (
+                          <tr>
+                            <td colSpan={updateMethod === "migrate" ? 9 : 8} className="text-center py-8 text-gray-500 text-xs">
+                              No uploaded requests to display. Switch to Error Log Report to view unsent rows.
                             </td>
                           </tr>
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
+              {/* Bottom Action Footer */}
               <div className="mt-8 pt-6 border-t border-gray-200 flex justify-end gap-3 flex-wrap">
-                {updateSummary.some(s => s.status === "error") && (
+                {masterErrorLog.length > 0 && (
+                  <button
+                    onClick={() =>
+                      exportErrorLogReportToExcel(
+                        masterErrorLog,
+                        uploadedFileData?.totalRows,
+                        downloadDateFormat
+                      )
+                    }
+                    className="flex items-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-md shadow-xs transition-colors cursor-pointer"
+                  >
+                    <DownloadIcon className="h-4 w-4 mr-2" /> Export Error Log Report ({masterErrorLog.length})
+                  </button>
+                )}
+                {updateSummary.some((s) => s.status === "error") && (
                   <button
                     onClick={handleRetryFailed}
-                    className="flex items-center bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md"
+                    className="flex items-center bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md shadow-xs transition-colors cursor-pointer"
                   >
                     Retry Failed Requests
                   </button>
                 )}
                 <button
                   onClick={handleExportResults}
-                  className="flex items-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md"
+                  className="flex items-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md shadow-xs transition-colors cursor-pointer"
                 >
                   <DownloadIcon className="h-4 w-4 mr-2" /> Export Results
                 </button>
                 <button
                   onClick={handleStartOver}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md shadow-xs transition-colors cursor-pointer"
                 >
                   Start New Process
                 </button>
@@ -7698,6 +7969,44 @@ reader.readAsArrayBuffer(file);
                 className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-md font-bold"
               >
                 Yes, start now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Skip Invalid Rows and Send Confirmation Modal */}
+      {showSkipAndSendConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-[500px] w-full shadow-xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+              <ExclamationIcon className="w-5 h-5 text-amber-500" />
+              <span>Skip Invalid Rows &amp; Proceed?</span>
+            </h3>
+            <div className="text-gray-600 mb-6 text-sm space-y-3">
+              <p>
+                There are <span className="font-semibold text-red-600">{totalTableErrors}</span> row(s) with validation errors in the review table.
+              </p>
+              <p>
+                Clicking <strong className="text-gray-800">Skip &amp; Send</strong> will skip all invalid rows and only send the{" "}
+                <span className="font-semibold text-blue-600">{adjustmentsToReview.length - totalTableErrors}</span> valid request(s).
+              </p>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-amber-800 text-xs">
+                <strong>Error Log Guarantee:</strong> All skipped rows will be automatically captured in the Error Log Report with full diagnostic reasons explaining why they were not sent, and can be exported to Excel.
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 flex-col sm:flex-row">
+              <button
+                onClick={() => setShowSkipAndSendConfirmModal(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md font-medium text-sm transition-colors cursor-pointer"
+              >
+                Cancel &amp; Review
+              </button>
+              <button
+                onClick={handleConfirmSkipAndSend}
+                className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-md font-bold text-sm transition-colors cursor-pointer"
+              >
+                Skip &amp; Send ({adjustmentsToReview.length - totalTableErrors} Valid)
               </button>
             </div>
           </div>

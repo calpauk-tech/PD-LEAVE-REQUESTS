@@ -22,7 +22,7 @@ interface EmployeeMapperProps {
   identityConfig: IdentityConfig;
   allEmployees: Employee[];
   initialMapping?: Map<number, number | null>;
-  onConfirm: (employeeMapping: Map<number, number | null>) => void;
+  onConfirm: (employeeMapping: Map<number, number | null>, rowMatches?: RowEmployeeMatch[]) => void;
   onBack: () => void;
 }
 
@@ -483,7 +483,7 @@ export const EmployeeMapper: React.FC<EmployeeMapperProps> = ({
     rowMatches.forEach((rm) => {
       resultMap.set(rm.rowIndex, rm.matchedEmployeeId);
     });
-    onConfirm(resultMap);
+    onConfirm(resultMap, rowMatches);
   };
 
   return (

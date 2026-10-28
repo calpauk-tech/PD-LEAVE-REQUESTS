@@ -26,11 +26,13 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedFileResult
     }
     decodedText = decodedText.normalize("NFKC");
 
-    const workbook = XLSX.read(decodedText, { type: "string", cellDates: true });
+    // For CSV files, use raw: true to prevent SheetJS from guessing US date format
+    const workbook = XLSX.read(decodedText, { type: "string", raw: true });
     const sheetName = workbook.SheetNames[0];
     worksheet = workbook.Sheets[sheetName];
   } else {
     const data = new Uint8Array(buffer);
+    // cellDates: true parses date cells into JS Date objects
     const workbook = XLSX.read(data, { type: "array", cellDates: true });
 
     // Prioritize "Leave Requests" if present, else sheet 0
@@ -51,12 +53,11 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedFileResult
     };
   }
 
-  // Convert sheet to 2D array of rows
+  // Convert sheet to 2D array of rows with raw: true to preserve JS Date objects and numeric serials
   const rawMatrix: any[][] = XLSX.utils.sheet_to_json(worksheet, {
     header: 1,
     defval: "",
-    raw: false,
-    dateNF: "yyyy-mm-dd",
+    raw: true,
   });
 
   if (rawMatrix.length === 0) {

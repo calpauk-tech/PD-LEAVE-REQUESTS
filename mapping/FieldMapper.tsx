@@ -11,9 +11,12 @@ import {
   Shield,
   Layers,
   HelpCircle,
+  Calendar,
+  RefreshCw,
 } from "lucide-react";
 import { TargetFieldDefinition, IdentityConfig } from "./types";
 import { AccountType } from "../types";
+import { detectColumnFormat } from "./normalization";
 
 export const ALIAS_MAP: Record<string, string[]> = {
   accountName: [
@@ -189,6 +192,8 @@ interface FieldMapperProps {
   identityConfig: IdentityConfig;
   accountTypes?: AccountType[];
   initialMapping?: Map<string, string>;
+  dateFormatPreference?: "EU" | "US";
+  onDateFormatChange?: (format: "EU" | "US") => void;
   onConfirm: (fieldMapping: Map<string, string>) => void;
   onBack: () => void;
 }
@@ -199,6 +204,8 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
   identityConfig,
   accountTypes = [],
   initialMapping,
+  dateFormatPreference = "EU",
+  onDateFormatChange,
   onConfirm,
   onBack,
 }) => {
@@ -443,6 +450,50 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
             Ignore Unmapped
           </button>
         </div>
+      </div>
+
+      {/* Date Format Setting & Pipeline Information Banner */}
+      <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="p-2 bg-blue-100 text-blue-700 rounded-lg mt-0.5">
+            <Calendar className="w-5 h-5 text-blue-600" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-gray-900">
+                Date Parsing Mode: {dateFormatPreference === "EU" ? "EU (DD/MM/YYYY)" : "US (MM/DD/YYYY)"}
+              </span>
+              <span className="px-2 py-0.5 text-[10px] font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-300">
+                Normalized to YYYY-MM-DD
+              </span>
+            </div>
+            <p className="text-xs text-gray-600 mt-1">
+              {dateFormatPreference === "EU" ? (
+                <>
+                  Ambiguous dates (e.g. <code>01/07/2026</code>) are read as <strong>1st July 2026</strong> (Day first).
+                </>
+              ) : (
+                <>
+                  Ambiguous dates (e.g. <code>01/07/2026</code>) are read as <strong>January 7th, 2026</strong> (Month first).
+                </>
+              )}{" "}
+              Native Excel date objects and unambiguous dates ({">"}12) are detected automatically.
+            </p>
+          </div>
+        </div>
+
+        {onDateFormatChange && (
+          <div className="flex items-center gap-2 self-end sm:self-center">
+            <button
+              type="button"
+              onClick={() => onDateFormatChange(dateFormatPreference === "EU" ? "US" : "EU")}
+              className="px-3 py-2 bg-white hover:bg-gray-50 border border-blue-300 rounded-lg text-xs font-semibold text-blue-800 shadow-sm transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
+              Switch to {dateFormatPreference === "EU" ? "US (MM/DD/YYYY)" : "EU (DD/MM/YYYY)"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Collision Alert Banner */}

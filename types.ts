@@ -145,4 +145,6 @@ export interface AdjustmentReview {
     isRequestStart?: boolean;
     requestStartDate?: string;
     requestEndDate?: string;
+    sourceRowNumber?: number;
+    stage?: 'mapping' | 'validation' | 'update';
 }
